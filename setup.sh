@@ -24,10 +24,11 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/too
 
 # INSTALLING ONION
 
-# INSTALLING IOT-LAB
 
 # INSTALLING MY-TOOLS
 ## Raspberry Pi Burros Server Startup
 ## Joe App Infrastructure
+
+# OTHER SETUPS
 
 apt upgrade -y
