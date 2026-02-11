@@ -1,0 +1,40 @@
+name: Local Build on Raspberry
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-deploy-cleanup:
+    runs-on: [self-hosted, k3s-pi]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Image Locally
+        run: |
+          # Nome do repo em lowercase para o padrão Docker
+          REPO_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          
+          echo "Iniciando build para: $REPO_NAME"
+          docker build -t $REPO_NAME:latest .
+
+      - name: Update K3s Deployment
+        run: |
+          REPO_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          
+          # Força o K3s a recarregar o container usando a nova imagem local
+          kubectl rollout restart deployment/$REPO_NAME
+
+      - name: Docker Hygiene (Cleanup)
+        if: always() # Garante que a limpeza rode mesmo se o build falhar
+        run: |
+          echo "Limpando camadas inúteis e imagens órfãs..."
+          
+          # Remove apenas imagens 'dangling' (camadas de builds anteriores que perderam a tag)
+          docker container prune -f --filter "until=24h"
+          # docker image prune -f
+          
+          # Opcional: Remove containers parados há mais de 24h para liberar RAM/Disco
+          # docker container prune -f --filter "until=24h"

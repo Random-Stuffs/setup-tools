@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    metadata:
+      labels:
+        app: kibana
+    spec:
+      containers:
+      - name: kibana
+        image: bitnami/kibana:8.11.3
+        ports:
+        - containerPort: 5601
+        env:
+        - name: KIBANA_ELASTICSEARCH_URL
+          value: "http://elasticsearch-service:9200"
+        - name: KIBANA_ELASTICSEARCH_USER
+          value: "elastic"
+        - name: KIBANA_ELASTICSEARCH_PASSWORD
+          value: "sua_senha_aqui" # Use a mesma senha definida no elasticsearch.yaml
+        
+        startupProbe:
+          httpGet:
+            path: /api/status
+            port: 5601
+          failureThreshold: 20
+          periodSeconds: 10  # Aguarda até 2.3 minutos (20 tentativas * 10 segundos)
+        
+        readinessProbe:
+          httpGet:
+            path: /api/status
+            port: 5601
+          initialDelaySeconds: 10
+          periodSeconds: 20
+
+        resources:
+          limits:
+            memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: kibana
+  ports:
+    - protocol: TCP
+      port: 5601
+      targetPort: 5601
