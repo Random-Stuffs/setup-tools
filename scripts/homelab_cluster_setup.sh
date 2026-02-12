@@ -46,6 +46,31 @@ echo "--- 6. Instalando Docker Compose no Ambiente Virtual (.venv) ---"
 source .venv/bin/activate
 sudo pip install docker-compose --break-system-packages --quiet
 
+echo "--- 7. Instalando Helm e ARC (Actions Runner Controller) no k3s ---"
+
+# 1. Garante que o Helm está instalado (caso não esteja no PATH)
+if ! command -v helm &> /dev/null; then
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+fi
+
+# 2. Instala o Controller (O "Cérebro" que gerencia a escala)
+helm install arc-controller oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller \
+    --version 0.13.1 \
+    --namespace github-runners \
+    --create-namespace
+
+# 3. Instala o Runner Set (O "Listener" que aguarda jobs para poupar CPU/RAM)
+helm install homelab-runner oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+    --version 0.13.1 \
+    --namespace github-runners \
+    --create-namespace \
+    --set githubConfigUrl="https://github.com/Random-Stuffs" \
+    --set githubConfigSecret.github_token="token"  # Substitua 'token' pela sua chave PAT válida com escopo admin:org
+
+echo "ARC instalado com sucesso! Verificando pods em 5 segundos..."
+sleep 5
+kubectl get pods -n github-runners
+
 echo "================================================================="
 echo " SETUP COMPLETO! "
 echo "================================================================="
