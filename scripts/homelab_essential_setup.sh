@@ -10,6 +10,14 @@ set -e
 echo "--- 1. Atualizando Sistema e Instalando Dependências de Compilação ---"
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y build-essential zlib1g-dev libncurses5-dev libgdbm-dev \
+sudo apt install -y \
+  portaudio19-dev \
+  python3-pyaudio \
+  python3-dev \
+  build-essential \
+  libasound2-dev \
+  flac \
+  mpg123
 libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev \
 wget curl llvm libncursesw5-dev xz-utils tk-dev libxml2-dev \
 libxmlsec1-dev liblzma-dev git
