@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skyrim-server-config
+data:
+  STServer.ini: |
+    [Server]
+    sServerName=Thinger's Land
+    sPassword=eumamoodedo
+    uPort=10578
+    uMaxPlayerCount=8
+    bAnnounceServer=true
+    [Game]
+    uDifficulty=3
+    bEnablePvp=true
+    fGoldLossFactor=0.5
+    bEnableDeathSystem=true
