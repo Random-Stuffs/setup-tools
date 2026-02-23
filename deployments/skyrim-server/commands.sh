@@ -8,6 +8,8 @@ kubectl delete service skyrim-service
 
 kubectl get pods
 
+kubectl describe pod skyrim-server-
+
 kubectl logs -f deployment/skyrim-server
 
 kubectl exec -it deployment/skyrim-server -- /bin/bash
