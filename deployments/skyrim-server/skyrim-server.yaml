@@ -43,7 +43,7 @@ spec:
     spec:
       containers:
       - name: skyrim-together
-        image: outshynd/st-reborn-server:latest
+        image: tiltedphoques/st-reborn-server:weekly-latest
         tty: true
         stdin: true
         ports:
