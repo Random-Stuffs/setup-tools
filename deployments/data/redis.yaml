@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: redis
+  namespace: data
 spec:
   replicas: 1
   selector:
@@ -17,16 +18,23 @@ spec:
         image: redis:7-alpine
         ports:
         - containerPort: 6379
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: redis-service
+  name: redis
+  namespace: data
 spec:
-  type: ClusterIP  # LoadBalancer, NodePort
   selector:
     app: redis
   ports:
-    - protocol: TCP
-      port: 6379
-      targetPort: 6379
+  - protocol: TCP
+    port: 6379
+    targetPort: 6379

@@ -1,3 +1,5 @@
+# DEPRECATED: Replaced by build-and-deploy.yaml which pushes to GHCR,
+# uses SHA-tagged images, and waits for rollout status.
 name: Local Build on Raspberry
 
 on:

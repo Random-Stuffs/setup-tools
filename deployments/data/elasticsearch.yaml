@@ -1,0 +1,88 @@
+# WARNING: Elasticsearch is heavy (1 GiB container limit + 512m JVM heap).
+# On a 4 GB Pi with other workloads running, monitor free memory carefully.
+# If pods OOM, reduce ES_JAVA_OPTS to -Xms256m -Xmx256m and lower the limit.
+#
+# Required host sysctl (or Elasticsearch will fail to start):
+#   sudo sysctl -w vm.max_map_count=262144
+# To persist across reboots, add to /etc/sysctl.conf:
+#   vm.max_map_count=262144
+apiVersion: v1
+kind: Secret
+metadata:
+  name: elasticsearch-secret
+  namespace: data
+type: Opaque
+stringData:
+  ELASTICSEARCH_PASSWORD: "<REPLACE_ME>"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elasticsearch-pvc
+  namespace: data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 3Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch
+  namespace: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+      - name: elasticsearch
+        image: bitnami/elasticsearch:8.14.3
+        env:
+        - name: discovery.type
+          value: single-node
+        - name: ES_JAVA_OPTS
+          value: "-Xms512m -Xmx512m"
+        - name: ELASTICSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-secret
+              key: ELASTICSEARCH_PASSWORD
+        ports:
+        - containerPort: 9200
+        volumeMounts:
+        - name: elasticsearch-data
+          mountPath: /bitnami/elasticsearch/data
+        resources:
+          requests:
+            cpu: 200m
+            memory: 768Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+      volumes:
+      - name: elasticsearch-data
+        persistentVolumeClaim:
+          claimName: elasticsearch-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: data
+spec:
+  type: LoadBalancer
+  selector:
+    app: elasticsearch
+  ports:
+  - name: http
+    port: 9200
+    targetPort: 9200

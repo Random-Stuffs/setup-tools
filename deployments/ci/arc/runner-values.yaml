@@ -1,0 +1,39 @@
+# Helm values for the ARC runner scale-set.
+# Apply with:
+#   helm upgrade --install homelab-runner \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+#     --version 0.13.1 \
+#     --namespace ci \
+#     --set githubConfigUrl="https://github.com/Random-Stuffs" \
+#     --set existingSecret=runner-secret \
+#     --values deployments/ci/arc/runner-values.yaml
+
+# Scale to zero when idle — saves ~256 MiB RAM on the Pi.
+minRunners: 0
+maxRunners: 2
+
+# Runner labels used in workflow YAML: runs-on: [self-hosted, k3s-pi]
+runnerScaleSetName: homelab-runner
+runnerGroup: default
+
+template:
+  spec:
+    containers:
+    - name: runner
+      # Mount host Docker socket so runners can execute `docker build`.
+      # Requires Docker to be installed on the Pi (04_docker.sh).
+      volumeMounts:
+      - name: docker-sock
+        mountPath: /var/run/docker.sock
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 512Mi
+    volumes:
+    - name: docker-sock
+      hostPath:
+        path: /var/run/docker.sock
+        type: Socket

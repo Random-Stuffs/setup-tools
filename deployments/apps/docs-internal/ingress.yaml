@@ -1,0 +1,14 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: docs-internal
+  namespace: apps
+spec:
+  entryPoints:
+  - web
+  routes:
+  - match: Host(`internal.homelab.local`)
+    kind: Rule
+    services:
+    - name: docs-internal
+      port: 80

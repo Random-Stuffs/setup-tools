@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: docs-internal
+  namespace: apps
+spec:
+  selector:
+    app: docs-internal
+  ports:
+  - port: 80
+    targetPort: 80

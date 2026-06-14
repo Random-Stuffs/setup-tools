@@ -1,0 +1,52 @@
+# Cloudflare Tunnel (named tunnel) deployment.
+#
+# Prerequisites:
+#   1. Create a tunnel in the Cloudflare dashboard (or via `cloudflared tunnel create homelab`).
+#   2. Copy the tunnel token and create the secret:
+#        kubectl create secret generic cloudflared-secret \
+#          --from-literal=TUNNEL_TOKEN="<your-token>" \
+#          --namespace infra
+#   3. In the Cloudflare dashboard, add DNS routes:
+#        <hostname> → http://<service>.<namespace>.svc.cluster.local:<port>
+#      e.g. docs.example.com → http://docusaurus.apps.svc.cluster.local:80
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:latest
+        args:
+        - tunnel
+        - --no-autoupdate
+        - run
+        env:
+        - name: TUNNEL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: cloudflared-secret
+              key: TUNNEL_TOKEN
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 2000
+          initialDelaySeconds: 10
+          periodSeconds: 20

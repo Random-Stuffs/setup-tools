@@ -1,0 +1,21 @@
+# Helm values for the ARC scale-set controller.
+# Apply with:
+#   helm upgrade --install arc-controller \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller \
+#     --version 0.13.1 \
+#     --namespace ci \
+#     --create-namespace \
+#     --values deployments/ci/arc/controller-values.yaml
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Restrict the controller to watch only the ci namespace to reduce RBAC scope.
+watchSingleNamespace: ci

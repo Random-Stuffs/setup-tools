@@ -1,0 +1,56 @@
+# StatefulSet keeps the PVC bound to the pod identity — context survives
+# redeploys and image updates without data loss.
+#
+# Backup:  kubectl cp mcp/mempalace-0:/data ./mempalace-backup
+# Restore: kubectl cp ./mempalace-backup mcp/mempalace-0:/data
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mempalace
+  namespace: mcp
+spec:
+  serviceName: mempalace
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mempalace
+  template:
+    metadata:
+      labels:
+        app: mempalace
+    spec:
+      containers:
+      - name: mempalace
+        # Replace with the actual Mempalace image when available.
+        # If self-built: ghcr.io/random-stuffs/mempalace:latest
+        image: ghcr.io/random-stuffs/mempalace:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: DATA_DIR
+          value: /data
+        volumeMounts:
+        - name: mempalace-data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 15
+  volumeClaimTemplates:
+  - metadata:
+      name: mempalace-data
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: local-path   # k3s built-in provisioner
+      resources:
+        requests:
+          storage: 2Gi

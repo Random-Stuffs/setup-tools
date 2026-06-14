@@ -1,3 +1,6 @@
+# DEPRECATED: This manifest uses the community myoung34/github-runner image.
+# The current setup uses ARC (Actions Runner Controller) installed via Helm.
+# See deployments/ci/arc/ and scripts/components/07_arc.sh.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
