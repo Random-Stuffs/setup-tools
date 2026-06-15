@@ -46,8 +46,7 @@ helm upgrade --install "$GITHUB_RUNNER_NAME" \
     --namespace "$GITHUB_RUNNER_NAMESPACE" \
     --values "$PROJECT_DIR/deployments/ci/arc/runner-values.yaml" \
     --set githubConfigUrl="$GITHUB_CONFIG_URL" \
-    --set githubConfigSecret.github_token="" \
-    --set existingSecret=runner-secret \
+    --set githubConfigSecret=runner-secret \
     --wait
 
 log_info "ARC installed. Verifying pods in namespace '${GITHUB_RUNNER_NAMESPACE}'..."
