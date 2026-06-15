@@ -43,5 +43,5 @@ template:
         type: Socket
     - name: kubectl
       hostPath:
-        path: /usr/local/bin/kubectl
+        path: /usr/local/bin/k3s
         type: File
