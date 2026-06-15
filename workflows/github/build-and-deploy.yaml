@@ -36,6 +36,13 @@ jobs:
           docker build -t "$IMAGE" .
           docker save "$IMAGE" | sudo k3s ctr images import -
 
+      - name: Install kubectl
+        run: |
+          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+          KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt)
+          curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
+
       - name: Apply k8s manifests
         run: |
           export APP_NAME="${{ github.event.repository.name }}"

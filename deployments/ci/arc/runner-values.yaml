@@ -27,8 +27,6 @@ template:
       volumeMounts:
       - name: docker-sock
         mountPath: /var/run/docker.sock
-      - name: kubectl
-        mountPath: /usr/local/bin/kubectl
       resources:
         requests:
           cpu: 250m
@@ -41,7 +39,3 @@ template:
       hostPath:
         path: /var/run/docker.sock
         type: Socket
-    - name: kubectl
-      hostPath:
-        path: /usr/local/bin/k3s
-        type: File
