@@ -31,6 +31,11 @@ kubectl create secret generic runner-secret \
     --namespace="$GITHUB_RUNNER_NAMESPACE" \
     --dry-run=client -o yaml | kubectl apply -f -
 
+log_info "Creating namespaces required by RBAC (docs, apps)..."
+for ns in docs apps; do
+    kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+done
+
 log_info "Applying RBAC for runner ServiceAccount..."
 kubectl apply -f "$PROJECT_DIR/deployments/ci/arc/rbac.yaml"
 
