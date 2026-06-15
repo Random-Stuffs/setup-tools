@@ -1,0 +1,53 @@
+# RBAC para o runner ARC executar kubectl dentro do cluster.
+#
+# Apply antes de instalar o Helm chart:
+#   kubectl apply -f deployments/ci/arc/rbac.yaml
+#
+# O runner usa autenticação in-cluster automaticamente (token montado em
+# /var/run/secrets/kubernetes.io/serviceaccount/). Nenhum kubeconfig necessário.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: arc-runner
+  namespace: ci
+---
+# Permissões mínimas: atualizar imagem de Deployment e acompanhar rollout.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: arc-runner-deployer
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+---
+# Acesso ao namespace docs (sites Docusaurus)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: arc-runner-deployer
+  namespace: docs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: arc-runner-deployer
+subjects:
+- kind: ServiceAccount
+  name: arc-runner
+  namespace: ci
+---
+# Acesso ao namespace apps (outras aplicações)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: arc-runner-deployer
+  namespace: apps
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: arc-runner-deployer
+subjects:
+- kind: ServiceAccount
+  name: arc-runner
+  namespace: ci
