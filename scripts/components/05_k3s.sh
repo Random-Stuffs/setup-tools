@@ -57,19 +57,37 @@ fix_cgroups() {
 
 fix_cgroups
 
-if command_exists k3s; then
-    log_info "k3s $(k3s --version | head -1) already installed — skipping."
-else
+install_k3s() {
     log_info "Installing k3s (containerd runtime)..."
     if [[ -n "$K3S_VERSION" ]]; then
         curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" sh -
     else
         curl -sfL https://get.k3s.io | sh -
     fi
+}
+
+if command_exists k3s; then
+    # Detect broken install: binary present but service not active.
+    if ! systemctl is-active --quiet k3s; then
+        log_warn "k3s binary found but service is not running (broken install detected)."
+        log_info "Running k3s-uninstall.sh to clean up..."
+        /usr/local/bin/k3s-uninstall.sh
+        install_k3s
+    else
+        log_info "k3s $(k3s --version | head -1) already installed and running — skipping."
+    fi
+else
+    install_k3s
 fi
 
-log_info "Waiting for k3s node to become Ready..."
+log_info "Waiting for k3s node to become Ready (timeout: 90s)..."
+SECONDS=0
 until k3s kubectl get nodes 2>/dev/null | grep -q " Ready"; do
+    if (( SECONDS > 90 )); then
+        log_error "k3s did not become Ready within 90s."
+        log_error "Check logs with: sudo journalctl -u k3s --no-pager -n 40"
+        exit 1
+    fi
     sleep 3
 done
 
