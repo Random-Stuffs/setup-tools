@@ -1,10 +1,22 @@
 apiVersion: v1
+kind: Secret
+metadata:
+  name: pgadmin-secret
+  namespace: data
+type: Opaque
+stringData:
+  PGADMIN_DEFAULT_EMAIL: "admin@admin.com"
+  PGADMIN_DEFAULT_PASSWORD: "<REPLACE_ME>"
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: pgadmin-pvc
+  namespace: data
 spec:
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
+  storageClassName: local-path
   resources:
     requests:
       storage: 1Gi
@@ -13,6 +25,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: pgadmin
+  namespace: data
 spec:
   replicas: 1
   selector:
@@ -30,14 +43,24 @@ spec:
         - containerPort: 80
         env:
         - name: PGADMIN_DEFAULT_EMAIL
-          value: "admin@admin.com" # Seu login
+          valueFrom:
+            secretKeyRef:
+              name: pgadmin-secret
+              key: PGADMIN_DEFAULT_EMAIL
         - name: PGADMIN_DEFAULT_PASSWORD
-          value: "sua_senha_aqui"    # Sua senha de login
+          valueFrom:
+            secretKeyRef:
+              name: pgadmin-secret
+              key: PGADMIN_DEFAULT_PASSWORD
         - name: PGADMIN_CONFIG_SERVER_MODE
-          value: "False"             # Melhora performance no Pi
+          value: "False"
         resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
           limits:
-            memory: "512Mi"
+            cpu: 500m
+            memory: 512Mi
         volumeMounts:
         - name: pgadmin-data
           mountPath: /var/lib/pgadmin
@@ -49,12 +72,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: pgadmin-service
+  name: pgadmin
+  namespace: data
 spec:
   type: LoadBalancer
   selector:
     app: pgadmin
   ports:
-    - protocol: TCP
-      port: 8080
-      targetPort: 80
+  - port: 8080
+    targetPort: 80

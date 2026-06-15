@@ -1,0 +1,114 @@
+# Quick tunnels via trycloudflare — sem conta, sem token, sem login.
+# Cada Deployment gera uma URL aleatória *.trycloudflare.com no startup.
+#
+# USE APENAS PARA DESENVOLVIMENTO / TESTES.
+# A URL muda a cada restart do pod — use deployment.yaml (named tunnel) em produção.
+#
+# Cada tunnel expõe um único serviço interno.
+# Para múltiplos sites, adicione um bloco Deployment por serviço abaixo.
+#
+# Ver a URL gerada:
+#   kubectl logs -n infra deployment/cloudflared-dev-docs-main    | grep trycloudflare.com
+#   kubectl logs -n infra deployment/cloudflared-dev-docs-internal | grep trycloudflare.com
+#
+# Subir todos de uma vez:
+#   kubectl apply -f deployments/infra/cloudflared/deployment-trycloudflare.yaml
+#
+# Derrubar todos:
+#   kubectl delete -f deployments/infra/cloudflared/deployment-trycloudflare.yaml
+
+# --- docs-main (http://docs.homelab.local → URL pública temporária) ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-dev-docs-main
+  namespace: infra
+  labels:
+    env: dev
+    site: docs-main
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared-dev-docs-main
+  template:
+    metadata:
+      labels:
+        app: cloudflared-dev-docs-main
+        env: dev
+    spec:
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:latest
+        args: [tunnel, --no-autoupdate, --url, "http://docs-main.apps.svc.cluster.local:80"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+# --- docs-internal ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-dev-docs-internal
+  namespace: infra
+  labels:
+    env: dev
+    site: docs-internal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared-dev-docs-internal
+  template:
+    metadata:
+      labels:
+        app: cloudflared-dev-docs-internal
+        env: dev
+    spec:
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:latest
+        args: [tunnel, --no-autoupdate, --url, "http://docs-internal.apps.svc.cluster.local:80"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+# --- mempalace (MCP server) ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-dev-mempalace
+  namespace: infra
+  labels:
+    env: dev
+    site: mempalace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared-dev-mempalace
+  template:
+    metadata:
+      labels:
+        app: cloudflared-dev-mempalace
+        env: dev
+    spec:
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:latest
+        args: [tunnel, --no-autoupdate, --url, "http://mempalace.mcp.svc.cluster.local:3000"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi

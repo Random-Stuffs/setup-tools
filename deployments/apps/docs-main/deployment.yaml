@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: docs-main
+  namespace: apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: docs-main
+  template:
+    metadata:
+      labels:
+        app: docs-main
+    spec:
+      containers:
+      - name: nginx
+        image: ghcr.io/random-stuffs/docs-main:latest
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: docs-main-nginx-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: docs-main-nginx-config
+  namespace: apps
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+
+        gzip on;
+        gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+    }
