@@ -59,11 +59,29 @@ fix_cgroups
 
 install_k3s() {
     log_info "Installing k3s (containerd runtime)..."
+    # K3S_KUBECONFIG_MODE=644 makes /etc/rancher/k3s/k3s.yaml world-readable
+    # so kubectl works without sudo even before we copy it to ~/.kube/config.
     if [[ -n "$K3S_VERSION" ]]; then
-        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" sh -
+        curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE=644 INSTALL_K3S_VERSION="$K3S_VERSION" sh -
     else
-        curl -sfL https://get.k3s.io | sh -
+        curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE=644 sh -
     fi
+}
+
+setup_kubeconfig() {
+    local kube_dir
+    kube_dir="$(dirname "$KUBECONFIG_PATH")"
+
+    log_info "Configuring kubeconfig for ${REAL_USER}..."
+    # Create ~/.kube owned by the real user, not root.
+    mkdir -p "$kube_dir"
+    chown "$REAL_USER:$REAL_USER" "$kube_dir"
+
+    cp /etc/rancher/k3s/k3s.yaml "$KUBECONFIG_PATH"
+    chown "$REAL_USER:$REAL_USER" "$KUBECONFIG_PATH"
+    chmod 600 "$KUBECONFIG_PATH"
+
+    log_info "kubeconfig written to ${KUBECONFIG_PATH}."
 }
 
 if command_exists k3s; then
@@ -91,11 +109,6 @@ until k3s kubectl get nodes 2>/dev/null | grep -q " Ready"; do
     sleep 3
 done
 
-log_info "Copying kubeconfig to ${KUBECONFIG_PATH}..."
-mkdir -p "$(dirname "$KUBECONFIG_PATH")"
-cp /etc/rancher/k3s/k3s.yaml "$KUBECONFIG_PATH"
-# Fix path references inside the file (k3s uses 127.0.0.1 which is fine).
-chown "$REAL_USER:$REAL_USER" "$KUBECONFIG_PATH"
-chmod 600 "$KUBECONFIG_PATH"
+setup_kubeconfig
 
 log_info "k3s is Ready. Run: kubectl get nodes"
