@@ -1,0 +1,14 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ${APP_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  entryPoints:
+  - web
+  routes:
+  - match: Host(`${APP_NAME}.homelab.local`)
+    kind: Rule
+    services:
+    - name: ${APP_NAME}
+      port: 3000
