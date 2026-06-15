@@ -101,20 +101,27 @@ kubectl delete -f deployments/dev/trycloudflare.yaml
 
 ### Key design decisions in manifests
 
-- **Docusaurus** — lives in namespace `docs`; `nginx:alpine` serves static files; nginx.conf is a ConfigMap so it can be updated without rebuilding. Traefik `IngressRoute` routes by hostname. Each site is a separate directory under `docs/`.
-- **trycloudflare (dev)** — namespace `dev`; one Deployment per service; each pod connects to a Docusaurus Service in namespace `docs` via `<svc>.docs.svc.cluster.local:80`. URL rotates on restart — production uses the named tunnel in `infra/cloudflared/`.
+- **Docusaurus** — lives in namespace `docs`; served via `docusaurus serve` on port 3000 (no nginx needed). Traefik `IngressRoute` routes by hostname (`${APP_NAME}.homelab.local`). App manifests live in `.k8s/` inside each app repo — not here.
+- **trycloudflare (dev)** — namespace `dev`; one Deployment per service; each pod connects to the app Service via `<svc>.<namespace>.svc.cluster.local:3000`. URL rotates on restart — production uses the named tunnel in `infra/cloudflared/`.
 - **Mempalace** — `StatefulSet` (not Deployment) so the PVC identity is preserved across restarts. Headless service gives stable DNS `mempalace-0.mempalace.mcp`. Backup: `kubectl cp mcp/mempalace-0:/data ./backup`.
 - **cloudflared** — named tunnel token stored in a Secret; routing rules live in the Cloudflare dashboard pointing to `<service>.<namespace>.svc.cluster.local`.
 - **Elasticsearch / Kibana** — heavy (1 GiB limit each); treat as optional on a 4 GB Pi. Requires `vm.max_map_count=262144` on the host.
-- **ARC runner scale-set** — `minRunners: 0` (scale-to-zero when idle). Mounts `/var/run/docker.sock` so runners can execute `docker build` against the host Docker daemon.
+- **ARC runner scale-set** — `minRunners: 0` (scale-to-zero when idle). Mounts `/var/run/docker.sock` so runners can execute `docker build` against the host Docker daemon. Runner is registered at repo level (`gresas/carlos-geo-hub`) — label: `homelab-runner`.
 
 ---
 
 ## CI/CD Workflow
 
-`workflows/github/build-and-deploy.yaml` is the per-repo template. Copy it to `.github/workflows/deploy.yaml` in each application repo and set `DEPLOYMENT_NAME` and `DEPLOY_NAMESPACE`.
+`workflows/github/build-and-deploy.yaml` is the per-repo template. Copy it to `.github/workflows/deploy.yaml` in each application repo — no edits needed.
 
-Pipeline: checkout → GHCR login → `docker/build-push-action` (SHA + `latest` tags, build cache) → `kubectl set image` → `kubectl rollout status --timeout=120s` → `docker image prune -f`.
+Pipeline: checkout → GHCR login → `docker/build-push-action` (SHA + `latest` tags, build cache) → `envsubst` on `.k8s/*.yaml` → `kubectl apply` → `kubectl rollout status --timeout=120s` → `docker image prune -f`.
+
+**Variables resolved at runtime:**
+- `APP_NAME` — `github.event.repository.name` (repo name, no org prefix)
+- `NAMESPACE` — `vars.DEPLOY_NAMESPACE` (set in repo Settings → Variables → Actions)
+- `IMAGE` — `ghcr.io/<org>/<repo>:<sha>` (lowercased)
+
+The runner is `homelab-runner` (registered for `gresas/carlos-geo-hub`; scale-set controller in namespace `ci`).
 
 Legacy files (`build-local-legacy.yaml`, `runner-legacy.yaml`) are kept for reference only.
 

@@ -5,7 +5,7 @@
 #     --version 0.13.1 \
 #     --namespace ci \
 #     --set githubConfigUrl="https://github.com/Random-Stuffs" \
-#     --set existingSecret=runner-secret \
+#     --set githubConfigSecret=runner-secret \
 #     --values deployments/ci/arc/runner-values.yaml
 
 # Scale to zero when idle — saves ~256 MiB RAM on the Pi.

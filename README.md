@@ -92,9 +92,11 @@ kubectl apply -f deployments/infra/cloudflared/
 # 4. MCP Mempalace
 kubectl apply -f deployments/mcp/mempalace/
 
-# 5. Docusaurus (update image tag after first CI build)
-kubectl apply -f deployments/apps/docusaurus/
+# 5. ARC RBAC (runner needs permission to deploy to docs/apps namespaces)
+kubectl apply -f deployments/ci/arc/rbac.yaml
 ```
+
+Application workloads (Docusaurus sites, APIs, etc.) are deployed automatically by the CI/CD pipeline on every push — **do not apply them manually**. See Step 5.
 
 ### Filling in secrets
 
@@ -133,20 +135,32 @@ kubectl create secret generic cloudflared-secret \
 
 ## Step 5 — Wire up per-repo CI/CD
 
-Copy `workflows/github/build-and-deploy.yaml` to `.github/workflows/deploy.yaml` in each application repo.
+Each application repo needs two things:
 
-Edit the two `env` vars at the top:
+**1. Workflow** — copy `workflows/github/build-and-deploy.yaml` to `.github/workflows/deploy.yaml` in the app repo. No edits needed — it reads everything from git context and GitHub variables.
 
-```yaml
-env:
-  DEPLOYMENT_NAME: my-app      # name of the k8s Deployment to roll out
-  DEPLOY_NAMESPACE: apps       # namespace of that Deployment
+**2. Manifests** — create a `.k8s/` directory in the app repo with four files (use `deployments/templates/docusaurus/` as reference):
+
+```
+.k8s/
+├── deployment.yaml       # uses ${APP_NAME}, ${NAMESPACE}, ${IMAGE} placeholders
+├── service.yaml
+├── ingress.yaml          # Traefik IngressRoute — Host(`${APP_NAME}.homelab.local`)
+└── trycloudflare.yaml    # ephemeral public URL via cloudflared
 ```
 
-On every push to `main`, the workflow will:
+**3. GitHub variable** — in the repo's Settings → Variables → Actions, add:
+
+```
+DEPLOY_NAMESPACE = docs   # (or apps, or whichever namespace this app goes into)
+```
+
+On every push to `master` or `main`, the workflow will:
 1. Build and push the Docker image to GHCR (tagged with the commit SHA).
-2. Update the Deployment image via `kubectl set image`.
+2. Run `envsubst` on every `.k8s/*.yaml` and `kubectl apply` them.
 3. Wait for rollout to complete (`kubectl rollout status --timeout=120s`).
+
+`APP_NAME` is derived from `github.event.repository.name` — no manual config needed.
 
 ---
 
@@ -197,8 +211,35 @@ helm upgrade arc-controller \
 
 helm upgrade homelab-runner \
   oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
-  --version <new-version> --namespace ci \
-  --reuse-values
+  --version <new-version> \
+  --namespace ci \
+  --set githubConfigUrl="https://github.com/gresas/carlos-geo-hub" \
+  --set githubConfigSecret=personal-runner-secret \
+  --values deployments/ci/arc/runner-values.yaml
+```
+
+### Troubleshoot stuck runner (EphemeralRunner `InvalidPod`)
+
+If runner pods fail with `spec.containers[0].image: Required value`, the runner image is missing from `runner-values.yaml`. Ensure `template.spec.containers[0].image` is set and re-run the helm upgrade above.
+
+If jobs stay **Queued** after the runner shows Online:
+
+```bash
+# 1. CoreDNS must be Running
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+
+# 2. Listener logs should show "Getting next message"
+kubectl logs -n ci -l app.kubernetes.io/component=listener \
+  -l actions.github.com/scale-set-name=homelab-runner --tail=20
+
+# 3. Check ephemeral runner pod status
+kubectl describe ephemeralrunners -n ci
+```
+
+Flannel CNI failure (`subnet.env: no such file`) is fixed by restarting k3s:
+```bash
+sudo systemctl restart k3s
+kubectl delete pod -n kube-system -l k8s-app=kube-dns   # recreate if still ContainerCreating
 ```
 
 ---

@@ -1,26 +1,24 @@
 # Generic CI/CD template for deploying a containerised app to the homelab k3s cluster.
 #
-# Copy this file to .github/workflows/deploy.yaml in any application repo and
-# replace the DEPLOYMENT_NAME env var with the name of the Kubernetes Deployment
-# to roll out.
+# Copy this file to .github/workflows/deploy.yaml in any application repo.
+# No edits needed — everything is derived from git context and GitHub variables.
 #
-# Assumptions:
-#   - A Dockerfile exists at the repo root.
-#   - The k3s cluster has a Deployment named $DEPLOYMENT_NAME in the `apps` namespace.
-#   - The self-hosted ARC runner is registered: org-runner (Random-Stuffs org).
-#   - No extra secrets needed: GITHUB_TOKEN is provided automatically by Actions.
+# Prerequisites in the app repo:
+#   - Dockerfile at the repo root.
+#   - .k8s/ directory with deployment.yaml, service.yaml, ingress.yaml,
+#     trycloudflare.yaml (use deployments/templates/docusaurus/ as reference).
+#   - GitHub variable DEPLOY_NAMESPACE set in Settings → Variables → Actions.
+#
+# Runtime variables (resolved by the workflow):
+#   APP_NAME  — github.event.repository.name  (e.g. carlos-geo-hub)
+#   NAMESPACE — vars.DEPLOY_NAMESPACE          (e.g. docs)
+#   IMAGE     — <repo-name>:<git-sha>           (local image, imported into k3s containerd)
 
 name: Build and Deploy
 
 on:
   push:
-    branches: ["main"]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-  DEPLOYMENT_NAME: my-app         # ← change this per repo
-  DEPLOY_NAMESPACE: apps          # ← change if deploying to a different namespace
+    branches: ["master", "main"]
 
 jobs:
   build-and-deploy:
@@ -28,50 +26,29 @@ jobs:
 
     permissions:
       contents: read
-      packages: write              # required to push to GHCR
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push image
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          # Build cache using GHCR — speeds up subsequent builds on the Pi.
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
-
-      - name: Install kubectl
+      - name: Build and import image into k3s
         run: |
-          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-          KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt)
-          curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
+          IMAGE="${{ github.event.repository.name }}:${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker save "$IMAGE" | sudo k3s ctr images import -
 
-      - name: Deploy to k3s
+      - name: Apply k8s manifests
         run: |
-          REPO_LC=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
-          kubectl set image deployment/${{ env.DEPLOYMENT_NAME }} \
-            *=${{ env.REGISTRY }}/${REPO_LC}:${{ github.sha }} \
-            --namespace=${{ env.DEPLOY_NAMESPACE }}
+          export APP_NAME="${{ github.event.repository.name }}"
+          export NAMESPACE="${{ vars.DEPLOY_NAMESPACE }}"
+          export IMAGE="${{ github.event.repository.name }}:${{ github.sha }}"
+          for f in .k8s/*.yaml; do
+            envsubst < "$f" | kubectl apply -f -
+          done
 
       - name: Wait for rollout
         run: |
-          kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} \
-            --namespace=${{ env.DEPLOY_NAMESPACE }} \
+          kubectl rollout status deployment/${{ github.event.repository.name }} \
+            --namespace=${{ vars.DEPLOY_NAMESPACE }} \
             --timeout=120s
 
       - name: Prune dangling images
