@@ -12,8 +12,8 @@
 minRunners: 0
 maxRunners: 2
 
-# Runner name used in workflow YAML: runs-on: homelab-runner
-runnerScaleSetName: homelab-runner
+# Runner name used in workflow YAML: runs-on: org-runner
+runnerScaleSetName: org-runner
 runnerGroup: default
 
 template:
