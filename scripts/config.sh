@@ -4,7 +4,9 @@
 
 # --- Python ---
 # Versions to build from source. Each entry is a full x.y.z tag.
-PYTHON_VERSIONS=("3.11.8" "3.12.7" "3.13.0")
+# Add more versions here or pass them as arguments to 02_python.sh directly:
+#   sudo bash scripts/components/02_python.sh 3.12.7 3.13.0
+PYTHON_VERSIONS=("3.11.8")
 
 # --- Node.js ---
 NVM_VERSION="0.39.7"
@@ -32,6 +34,3 @@ GITHUB_RUNNER_NAME="homelab-runner"
 
 # --- k9s ---
 K9S_VERSION="latest"   # or pin, e.g. "v0.32.5"
-
-# --- Lab directory ---
-LAB_DIR="$HOME/Documents/lab"
