@@ -18,6 +18,7 @@ runnerGroup: default
 
 template:
   spec:
+    serviceAccountName: arc-runner
     containers:
     - name: runner
       # Mount host Docker socket so runners can execute `docker build`.

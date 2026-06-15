@@ -2,27 +2,27 @@
 # Cada Deployment gera uma URL aleatória *.trycloudflare.com no startup.
 #
 # USE APENAS PARA DESENVOLVIMENTO / TESTES.
-# A URL muda a cada restart do pod — use deployment.yaml (named tunnel) em produção.
+# A URL muda a cada restart do pod — use infra/cloudflared/deployment.yaml (named tunnel) em produção.
 #
-# Cada tunnel expõe um único serviço interno.
-# Para múltiplos sites, adicione um bloco Deployment por serviço abaixo.
+# Cada tunnel aponta para um serviço no namespace docs.
+# Para adicionar mais um site Docusaurus, copie um bloco abaixo e ajuste o nome/URL.
 #
 # Ver a URL gerada:
-#   kubectl logs -n infra deployment/cloudflared-dev-docs-main    | grep trycloudflare.com
-#   kubectl logs -n infra deployment/cloudflared-dev-docs-internal | grep trycloudflare.com
+#   kubectl logs -n dev deployment/cloudflared-dev-docs-main     | grep trycloudflare.com
+#   kubectl logs -n dev deployment/cloudflared-dev-docs-internal | grep trycloudflare.com
 #
 # Subir todos de uma vez:
-#   kubectl apply -f deployments/infra/cloudflared/deployment-trycloudflare.yaml
+#   kubectl apply -f deployments/dev/trycloudflare.yaml
 #
 # Derrubar todos:
-#   kubectl delete -f deployments/infra/cloudflared/deployment-trycloudflare.yaml
+#   kubectl delete -f deployments/dev/trycloudflare.yaml
 
-# --- docs-main (http://docs.homelab.local → URL pública temporária) ---
+# --- docs-main → namespace docs, porta 80 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cloudflared-dev-docs-main
-  namespace: infra
+  namespace: dev
   labels:
     env: dev
     site: docs-main
@@ -40,7 +40,7 @@ spec:
       containers:
       - name: cloudflared
         image: cloudflare/cloudflared:latest
-        args: [tunnel, --no-autoupdate, --url, "http://docs-main.apps.svc.cluster.local:80"]
+        args: [tunnel, --no-autoupdate, --url, "http://docs-main.docs.svc.cluster.local:80"]
         resources:
           requests:
             cpu: 50m
@@ -49,12 +49,12 @@ spec:
             cpu: 200m
             memory: 128Mi
 ---
-# --- docs-internal ---
+# --- docs-internal → namespace docs, porta 80 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cloudflared-dev-docs-internal
-  namespace: infra
+  namespace: dev
   labels:
     env: dev
     site: docs-internal
@@ -72,7 +72,7 @@ spec:
       containers:
       - name: cloudflared
         image: cloudflare/cloudflared:latest
-        args: [tunnel, --no-autoupdate, --url, "http://docs-internal.apps.svc.cluster.local:80"]
+        args: [tunnel, --no-autoupdate, --url, "http://docs-internal.docs.svc.cluster.local:80"]
         resources:
           requests:
             cpu: 50m
@@ -81,12 +81,12 @@ spec:
             cpu: 200m
             memory: 128Mi
 ---
-# --- mempalace (MCP server) ---
+# --- mempalace (MCP server) → namespace mcp, porta 3000 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cloudflared-dev-mempalace
-  namespace: infra
+  namespace: dev
   labels:
     env: dev
     site: mempalace

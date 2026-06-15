@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: docs-internal
-  namespace: apps
+  namespace: docs
 spec:
   replicas: 1
   selector:
@@ -44,7 +44,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: docs-internal-nginx-config
-  namespace: apps
+  namespace: docs
 data:
   default.conf: |
     server {

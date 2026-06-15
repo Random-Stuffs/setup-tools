@@ -66,8 +66,13 @@ sudo -E bash scripts/homelab_cluster_setup.sh
 
 ```
 deployments/
-├── namespaces.yaml             # Apply first: apps | mcp | ci | infra | data
-├── apps/docusaurus/            # nginx:alpine, Traefik IngressRoute, ConfigMap for nginx.conf
+├── namespaces.yaml             # Apply first: docs | apps | dev | mcp | ci | infra | data
+├── docs/                       # Docusaurus sites — namespace: docs
+│   ├── docs-main/              # nginx:alpine, Traefik IngressRoute (docs.homelab.local)
+│   └── docs-internal/          # nginx:alpine, Traefik IngressRoute (internal.homelab.local)
+├── apps/                       # General applications — namespace: apps
+├── dev/                        # Dev/test tooling — namespace: dev
+│   └── trycloudflare.yaml      # Quick tunnels (no account) pointing to docs/* services
 ├── mcp/mempalace/              # StatefulSet + headless Service + local-path PVC (2Gi)
 ├── ci/arc/                     # Helm values files for ARC controller + runner scale-set
 ├── infra/cloudflared/          # Named tunnel Deployment + secret template (token via Secret)
@@ -83,13 +88,21 @@ kubectl apply -f deployments/namespaces.yaml
 kubectl apply -f deployments/data/
 kubectl apply -f deployments/infra/cloudflared/
 kubectl apply -f deployments/mcp/mempalace/
-kubectl apply -f deployments/apps/docusaurus/
+kubectl apply -f deployments/docs/
 # ARC is installed via Helm (see 07_arc.sh), not kubectl apply
+
+# Dev tunnels (optional — para testes):
+kubectl apply -f deployments/dev/trycloudflare.yaml
+# Ver URLs geradas:
+kubectl logs -n dev deployment/cloudflared-dev-docs-main | grep trycloudflare.com
+# Remover tunnels de dev:
+kubectl delete -f deployments/dev/trycloudflare.yaml
 ```
 
 ### Key design decisions in manifests
 
-- **Docusaurus** — `nginx:alpine`; nginx.conf is a ConfigMap so it can be updated without rebuilding the image. Traefik `IngressRoute` (built into k3s) routes by hostname.
+- **Docusaurus** — lives in namespace `docs`; `nginx:alpine` serves static files; nginx.conf is a ConfigMap so it can be updated without rebuilding. Traefik `IngressRoute` routes by hostname. Each site is a separate directory under `docs/`.
+- **trycloudflare (dev)** — namespace `dev`; one Deployment per service; each pod connects to a Docusaurus Service in namespace `docs` via `<svc>.docs.svc.cluster.local:80`. URL rotates on restart — production uses the named tunnel in `infra/cloudflared/`.
 - **Mempalace** — `StatefulSet` (not Deployment) so the PVC identity is preserved across restarts. Headless service gives stable DNS `mempalace-0.mempalace.mcp`. Backup: `kubectl cp mcp/mempalace-0:/data ./backup`.
 - **cloudflared** — named tunnel token stored in a Secret; routing rules live in the Cloudflare dashboard pointing to `<service>.<namespace>.svc.cluster.local`.
 - **Elasticsearch / Kibana** — heavy (1 GiB limit each); treat as optional on a 4 GB Pi. Requires `vm.max_map_count=262144` on the host.
