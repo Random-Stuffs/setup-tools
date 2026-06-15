@@ -11,6 +11,52 @@ require_root
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(eval echo "~$REAL_USER")
 
+# ---------------------------------------------------------------------------
+# Raspberry Pi cgroup fix
+# k3s requires the memory cgroup controller to be enabled at boot.
+# On Raspberry Pi OS it is off by default, causing:
+#   "Error: failed to find memory cgroup (v2)"
+# Fix: inject the required params into cmdline.txt and flag for reboot.
+# ---------------------------------------------------------------------------
+fix_cgroups() {
+    # Pi OS Bookworm uses /boot/firmware/cmdline.txt; older releases use /boot/cmdline.txt
+    local cmdline
+    if [[ -f /boot/firmware/cmdline.txt ]]; then
+        cmdline=/boot/firmware/cmdline.txt
+    elif [[ -f /boot/cmdline.txt ]]; then
+        cmdline=/boot/cmdline.txt
+    else
+        log_warn "Could not find cmdline.txt — skipping cgroup fix."
+        return 0
+    fi
+
+    local needed="cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1"
+    local current
+    current=$(cat "$cmdline")
+    local updated="$current"
+    local changed=0
+
+    for param in $needed; do
+        if ! grep -q "$param" "$cmdline"; then
+            updated="$updated $param"
+            changed=1
+        fi
+    done
+
+    if [[ $changed -eq 1 ]]; then
+        log_info "Enabling cgroup memory in ${cmdline}..."
+        # cmdline.txt must be a single line — write atomically
+        echo "$updated" > "$cmdline"
+        log_warn "cgroup params added. A REBOOT IS REQUIRED before k3s will start."
+        log_warn "Run: sudo reboot — then re-run this script."
+        exit 0
+    else
+        log_info "cgroup memory already enabled in ${cmdline}."
+    fi
+}
+
+fix_cgroups
+
 if command_exists k3s; then
     log_info "k3s $(k3s --version | head -1) already installed — skipping."
 else
