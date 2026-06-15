@@ -57,5 +57,25 @@ helm upgrade --install "$GITHUB_RUNNER_NAME" \
     --set githubConfigSecret=runner-secret \
     --wait
 
+if [[ -n "${GITHUB_PERSONAL_PAT:-}" ]]; then
+    log_info "Installing personal runner scale-set '${GITHUB_PERSONAL_RUNNER_NAME}' for ${GITHUB_PERSONAL_CONFIG_URL}..."
+    kubectl create secret generic personal-runner-secret \
+        --from-literal=github_token="$GITHUB_PERSONAL_PAT" \
+        --namespace="$GITHUB_RUNNER_NAMESPACE" \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    helm upgrade --install "$GITHUB_PERSONAL_RUNNER_NAME" \
+        oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+        --version "$ARC_CHART_VERSION" \
+        --namespace "$GITHUB_RUNNER_NAMESPACE" \
+        --values "$PROJECT_DIR/deployments/ci/arc/runner-personal-values.yaml" \
+        --set githubConfigUrl="$GITHUB_PERSONAL_CONFIG_URL" \
+        --set githubConfigSecret=personal-runner-secret \
+        --wait
+else
+    log_warn "GITHUB_PERSONAL_PAT not set — skipping ${GITHUB_PERSONAL_RUNNER_NAME} install."
+    log_warn "To activate: export GITHUB_PERSONAL_PAT='ghp_...' and re-run this script."
+fi
+
 log_info "ARC installed. Verifying pods in namespace '${GITHUB_RUNNER_NAMESPACE}'..."
 kubectl get pods -n "$GITHUB_RUNNER_NAMESPACE"

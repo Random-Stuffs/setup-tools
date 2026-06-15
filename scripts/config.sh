@@ -28,9 +28,14 @@ HELM_VERSION="latest"   # or pin, e.g. "v3.14.4"
 ARC_CHART_VERSION="0.13.1"
 GITHUB_CONFIG_URL="https://github.com/Random-Stuffs"   # org or repo URL
 GITHUB_RUNNER_NAMESPACE="ci"
-GITHUB_RUNNER_NAME="homelab-runner"
+GITHUB_RUNNER_NAME="org-runner"
 # GITHUB_PAT must be set in the environment before running 07_arc.sh:
 #   export GITHUB_PAT="ghp_..."
+
+# Personal account runner — optional, activated when GITHUB_PERSONAL_PAT is exported.
+# PAT scopes needed: repo
+GITHUB_PERSONAL_CONFIG_URL="https://github.com/gresas"
+GITHUB_PERSONAL_RUNNER_NAME="homelab-runner"
 
 # --- k9s ---
 K9S_VERSION="latest"   # or pin, e.g. "v0.32.5"

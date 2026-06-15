@@ -7,7 +7,7 @@
 # Assumptions:
 #   - A Dockerfile exists at the repo root.
 #   - The k3s cluster has a Deployment named $DEPLOYMENT_NAME in the `apps` namespace.
-#   - The self-hosted ARC runner is registered with labels [self-hosted, k3s-pi].
+#   - The self-hosted ARC runner is registered: org-runner (Random-Stuffs) or homelab-runner (gresas).
 #   - No extra secrets needed: GITHUB_TOKEN is provided automatically by Actions.
 
 name: Build and Deploy
@@ -24,7 +24,7 @@ env:
 
 jobs:
   build-and-deploy:
-    runs-on: [self-hosted, k3s-pi]
+    runs-on: homelab-runner   # or org-runner for Random-Stuffs repos
 
     permissions:
       contents: read
