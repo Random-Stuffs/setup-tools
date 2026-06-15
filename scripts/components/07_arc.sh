@@ -19,6 +19,9 @@ require_root
 
 KUBECONFIG="${KUBECONFIG_PATH}" export KUBECONFIG
 
+# SCRIPT_DIR is scripts/components/ — project root is two levels up.
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 log_info "Creating namespace '${GITHUB_RUNNER_NAMESPACE}'..."
 kubectl create namespace "$GITHUB_RUNNER_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
@@ -41,7 +44,7 @@ helm upgrade --install "$GITHUB_RUNNER_NAME" \
     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
     --version "$ARC_CHART_VERSION" \
     --namespace "$GITHUB_RUNNER_NAMESPACE" \
-    --values "$(dirname "$SCRIPT_DIR")/deployments/ci/arc/runner-values.yaml" \
+    --values "$PROJECT_DIR/deployments/ci/arc/runner-values.yaml" \
     --set githubConfigUrl="$GITHUB_CONFIG_URL" \
     --set githubConfigSecret.github_token="" \
     --set existingSecret=runner-secret \
