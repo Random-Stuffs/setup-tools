@@ -21,11 +21,14 @@ template:
     serviceAccountName: arc-runner
     containers:
     - name: runner
+      image: ghcr.io/actions/actions-runner:latest
       # Mount host Docker socket so runners can execute `docker build`.
       # Requires Docker to be installed on the Pi (04_docker.sh).
       volumeMounts:
       - name: docker-sock
         mountPath: /var/run/docker.sock
+      - name: kubectl
+        mountPath: /usr/local/bin/kubectl
       resources:
         requests:
           cpu: 250m
@@ -38,3 +41,7 @@ template:
       hostPath:
         path: /var/run/docker.sock
         type: Socket
+    - name: kubectl
+      hostPath:
+        path: /usr/local/bin/kubectl
+        type: File
