@@ -21,7 +21,6 @@ template:
     serviceAccountName: arc-runner
     containers:
     - name: runner
-      image: ghcr.io/actions/actions-runner:latest
       # Mount host Docker socket so runners can execute `docker build`.
       # Requires Docker to be installed on the Pi (04_docker.sh).
       volumeMounts:
