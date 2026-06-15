@@ -34,7 +34,7 @@ GITHUB_RUNNER_NAME="org-runner"
 
 # Personal account runner — optional, activated when GITHUB_PERSONAL_PAT is exported.
 # PAT scopes needed: repo
-GITHUB_PERSONAL_CONFIG_URL="https://github.com/gresas"
+GITHUB_PERSONAL_CONFIG_URL="https://github.com/gresas/carlos-geo-hub"  # repo-level: personal accounts don't support user-level runners
 GITHUB_PERSONAL_RUNNER_NAME="homelab-runner"
 
 # --- k9s ---
