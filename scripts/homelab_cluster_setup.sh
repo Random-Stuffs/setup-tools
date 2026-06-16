@@ -26,6 +26,7 @@ log_info "--- Step 2/4: Helm ---"
 bash "$SCRIPT_DIR/components/06_helm.sh"
 
 log_info "--- Step 3/4: GitLab Runner ---"
+KUBECONFIG="${KUBECONFIG_PATH}" kubectl create namespace ci --dry-run=client -o yaml | KUBECONFIG="${KUBECONFIG_PATH}" kubectl apply -f -
 bash "$SCRIPT_DIR/components/07_gitlab_runner.sh"
 
 log_info "--- Step 4/4: k9s ---"
