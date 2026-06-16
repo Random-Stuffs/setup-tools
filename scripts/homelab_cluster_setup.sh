@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # Homelab Cluster Setup
-# Installs: k3s (containerd) | Helm | GitLab Runner | k9s
+# Installs: k3s (containerd) | Helm | Gitea Runner | k9s
 #
 # Usage:
 #   sudo bash homelab_cluster_setup.sh
@@ -25,10 +25,10 @@ bash "$SCRIPT_DIR/components/05_k3s.sh"
 log_info "--- Step 2/4: Helm ---"
 bash "$SCRIPT_DIR/components/06_helm.sh"
 
-log_info "--- Step 3/4: GitLab Runner ---"
+log_info "--- Step 3/4: Gitea Runner ---"
 KUBECONFIG="${KUBECONFIG_PATH}" kubectl create namespace ci --dry-run=client -o yaml | KUBECONFIG="${KUBECONFIG_PATH}" kubectl apply -f -
 KUBECONFIG="${KUBECONFIG_PATH}" kubectl create namespace apps --dry-run=client -o yaml | KUBECONFIG="${KUBECONFIG_PATH}" kubectl apply -f -
-bash "$SCRIPT_DIR/components/07_gitlab_runner.sh"
+bash "$SCRIPT_DIR/components/07_gitea_runner.sh"
 
 log_info "--- Step 4/4: k9s ---"
 bash "$SCRIPT_DIR/components/08_k9s.sh"
@@ -47,13 +47,14 @@ log_info "  kubectl apply -f deployments/infra/cloudflared/"
 log_info "  kubectl apply -f deployments/mcp/mempalace/"
 log_info "  kubectl apply -f deployments/docs/"
 log_info ""
-log_info "Deploy GitLab:"
-log_info "  kubectl apply -f deployments/apps/gitlab/pvc.yaml"
-log_info "  kubectl create secret generic gitlab-secret --from-literal=GITLAB_ROOT_PASSWORD=<sua-senha> -n apps"
-log_info "  kubectl apply -f deployments/apps/gitlab/deployment.yaml"
-log_info "  kubectl apply -f deployments/apps/gitlab/service.yaml"
-log_info "  kubectl apply -f deployments/apps/gitlab/ingress.yaml"
+log_info "Deploy Gitea:"
+log_info "  kubectl apply -f deployments/apps/gitea/pvc.yaml"
+log_info "  kubectl create secret generic gitea-secret --from-literal=GITEA_ADMIN_PASSWORD=<sua-senha> -n apps"
+log_info "  kubectl apply -f deployments/apps/gitea/deployment.yaml"
+log_info "  kubectl apply -f deployments/apps/gitea/service.yaml"
+log_info "  kubectl apply -f deployments/apps/gitea/ingress.yaml"
 log_info ""
-log_info "After GitLab is up, register the runner (token: Admin Area > CI/CD > Runners):"
-log_info "  kubectl exec -n ci deploy/gitlab-runner -- gitlab-runner register --non-interactive --url http://gitlab.homelab.local --registration-token <TOKEN> --executor docker --docker-image alpine:latest --description pi-k3s-runner --tag-list pi,docker,homelab"
+log_info "After Gitea is up, register the runner (token: Admin > Site Administration > Actions > Runners):"
+log_info "  kubectl create secret generic gitea-runner-secret --from-literal=GITEA_RUNNER_REGISTRATION_TOKEN=<token> -n ci"
+log_info "  kubectl apply -f deployments/ci/gitea-runner/deployment.yaml"
 log_info "========================================================"

@@ -27,7 +27,7 @@ scripts/
 │   ├── 04_docker.sh            # Docker CE + Compose v2 plugin + log rotation
 │   ├── 05_k3s.sh               # k3s with default containerd runtime
 │   ├── 06_helm.sh              # Helm 3
-│   ├── 07_gitlab_runner.sh     # Deploys GitLab Runner pod to k3s (registration is manual)
+│   ├── 07_gitea_runner.sh      # Creates ci namespace + PVC; runner deployment is applied after Gitea is up
 │   └── 08_k9s.sh               # k9s TUI binary (ARM64, auto-detects arch)
 ├── homelab_essential_setup.sh  # Orchestrator: sources components 01–04
 └── homelab_cluster_setup.sh    # Orchestrator: sources components 05–08
@@ -69,20 +69,21 @@ deployments/
 │   ├── docs-main/              # nginx:alpine, Traefik IngressRoute (docs.homelab.local)
 │   └── docs-internal/          # nginx:alpine, Traefik IngressRoute (internal.homelab.local)
 ├── apps/
-│   └── gitlab/                 # GitLab CE — namespace: apps (gitlab.homelab.local)
-│       ├── pvc.yaml            # 10Gi local-path PVC (bundled PG + Redis + repos)
-│       ├── secret.yaml         # Template: GITLAB_ROOT_PASSWORD (populate before apply)
-│       ├── deployment.yaml     # gitlab/gitlab-ce:latest, 3Gi limit
-│       ├── service.yaml        # ClusterIP porta 80
+│   └── gitea/                  # Gitea — namespace: apps (gitea.homelab.local)
+│       ├── pvc.yaml            # 5Gi local-path PVC (SQLite DB + repos + packages/registry)
+│       ├── secret.yaml         # Template: GITEA_ADMIN_PASSWORD (populate before apply)
+│       ├── deployment.yaml     # gitea/gitea:latest, 512Mi limit, SQLite bundled
+│       ├── service.yaml        # ClusterIP :3000 (HTTP) + NodePort 30022 (SSH git)
 │       └── ingress.yaml        # IngressRoute Traefik (traefik.io/v1alpha1)
 ├── dev/                        # Dev/test tooling — namespace: dev
 │   └── trycloudflare.yaml      # Quick tunnels (no account) pointing to docs/* services
 ├── mcp/mempalace/              # StatefulSet + headless Service + local-path PVC (2Gi)
 ├── ci/
-│   ├── arc/                    # Kept for reference (replaced by GitLab Runner)
-│   └── gitlab-runner/          # GitLab Runner — namespace: ci
-│       ├── pvc.yaml            # 1Gi PVC para /etc/gitlab-runner (config persiste restarts)
-│       └── deployment.yaml     # gitlab/gitlab-runner:latest + docker.sock mount
+│   ├── arc/                    # Kept for reference (legacy GitHub Actions runner)
+│   └── gitea-runner/           # Gitea act_runner — namespace: ci
+│       ├── pvc.yaml            # 1Gi PVC para /data (config persiste restarts)
+│       ├── secret.yaml         # Template: GITEA_RUNNER_REGISTRATION_TOKEN
+│       └── deployment.yaml     # gitea/act_runner:latest + docker.sock mount
 ├── infra/cloudflared/          # Named tunnel Deployment + secret template (token via Secret)
 └── data/                       # postgres | mongodb | redis | elasticsearch | kibana | pgadmin
 ```
@@ -98,21 +99,17 @@ kubectl apply -f deployments/infra/cloudflared/
 kubectl apply -f deployments/mcp/mempalace/
 kubectl apply -f deployments/docs/
 
-# GitLab (aplicar secret manualmente para não commitar senha):
-kubectl apply -f deployments/apps/gitlab/pvc.yaml
-kubectl create secret generic gitlab-secret \
-  --from-literal=GITLAB_ROOT_PASSWORD=<sua-senha> -n apps
-kubectl apply -f deployments/apps/gitlab/deployment.yaml
-kubectl apply -f deployments/apps/gitlab/service.yaml
-kubectl apply -f deployments/apps/gitlab/ingress.yaml
+# Gitea (aplicar secret manualmente para não commitar senha):
+kubectl apply -f deployments/apps/gitea/pvc.yaml
+kubectl create secret generic gitea-secret --from-literal=GITEA_ADMIN_PASSWORD=<sua-senha> -n apps
+kubectl apply -f deployments/apps/gitea/deployment.yaml
+kubectl apply -f deployments/apps/gitea/service.yaml
+kubectl apply -f deployments/apps/gitea/ingress.yaml
 
-# Após GitLab estar up (~5 min), registrar o runner:
-# Token: Admin Area → CI/CD → Runners → Register an instance runner
-kubectl exec -n ci deploy/gitlab-runner -- gitlab-runner register \
-  --non-interactive --url http://gitlab.homelab.local \
-  --registration-token <TOKEN> --executor docker \
-  --docker-image alpine:latest --description pi-k3s-runner \
-  --tag-list pi,docker,homelab
+# Após Gitea estar up (~30s), registrar o runner:
+# Token: Admin → Site Administration → Actions → Runners
+kubectl create secret generic gitea-runner-secret --from-literal=GITEA_RUNNER_REGISTRATION_TOKEN=<token> -n ci
+kubectl apply -f deployments/ci/gitea-runner/deployment.yaml
 
 # Dev tunnels (opcional):
 kubectl apply -f deployments/dev/trycloudflare.yaml
@@ -127,15 +124,16 @@ kubectl delete -f deployments/dev/trycloudflare.yaml
 - **Mempalace** — `StatefulSet` (not Deployment) so the PVC identity is preserved across restarts. Headless service gives stable DNS `mempalace-0.mempalace.mcp`. Backup: `kubectl cp mcp/mempalace-0:/data ./backup`.
 - **cloudflared** — named tunnel token stored in a Secret; routing rules live in the Cloudflare dashboard pointing to `<service>.<namespace>.svc.cluster.local`.
 - **Elasticsearch / Kibana** — heavy (1 GiB limit each); treat as optional on a 4 GB Pi. Requires `vm.max_map_count=262144` on the host.
-- **GitLab Runner** — deployed as Deployment in namespace `ci`. Config persists in a 1Gi PVC (`/etc/gitlab-runner`) so registration survives pod restarts. Mounts `/var/run/docker.sock` for Docker-in-Docker builds. Registration is manual after GitLab is up (see apply order above).
+- **Gitea** — namespace `apps`; SQLite backend (fully self-contained in 5Gi PVC). SSH git available via NodePort 30022. Container Registry built-in (Gitea Packages, OCI-compatible). `strategy: Recreate` prevents dual-pod PVC conflict.
+- **Gitea Runner** — `gitea/act_runner` in namespace `ci`. Registers automatically via `GITEA_RUNNER_REGISTRATION_TOKEN` env var. Config persists in 1Gi PVC. Mounts `/var/run/docker.sock`. Gitea Actions uses GitHub Actions YAML syntax.
 
 ---
 
 ## CI/CD Workflow
 
-CI/CD is handled by GitLab Pipelines (`.gitlab-ci.yml` in each app repo), executed by the GitLab Runner deployed in namespace `ci`.
+CI/CD is handled by Gitea Actions (`.gitea/workflows/*.yml` in each app repo), executed by the `act_runner` in namespace `ci`. Syntax is compatible with GitHub Actions.
 
-Runner tags: `pi`, `docker`, `homelab`. Use `tags: [pi]` in pipeline jobs to target this runner.
+Runner labels: `pi`, `docker`, `homelab`. Use `runs-on: [pi]` in workflow jobs to target this runner.
 
 The `workflows/github/` directory contains legacy GitHub Actions templates kept for reference.
 
@@ -149,10 +147,11 @@ The `workflows/github/` directory contains legacy GitHub Actions templates kept 
 | cloudflared | 64 MiB | 128 MiB |
 | Docusaurus | 64 MiB | 128 MiB |
 | Mempalace | 128 MiB | 512 MiB |
-| GitLab CE (bundled PG + Redis) | 1.5 GiB | 3 GiB |
-| GitLab Runner (idle) | 128 MiB | 512 MiB |
+| Gitea (SQLite) | 128 MiB | 512 MiB |
+| Gitea Runner (idle) | 128 MiB | 512 MiB |
 | Postgres | 128 MiB | 512 MiB |
 | Redis | 32 MiB | 128 MiB |
-| **Idle total** | **~2.4 GiB** | — |
+| **Idle total** | **~944 MiB** | — |
 
+~2.7 GiB free for CI/CD job peaks and other workloads.
 Elasticsearch + Kibana add up to 2 GiB of limits — deploy only if the Pi has 8 GB RAM.

@@ -1,14 +1,14 @@
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: gitlab
+  name: gitea
   namespace: apps
 spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`gitlab.homelab.local`)
+    - match: Host(`gitea.homelab.local`)
       kind: Rule
       services:
-        - name: gitlab
-          port: 80
+        - name: gitea
+          port: 3000

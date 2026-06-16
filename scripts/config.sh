@@ -24,8 +24,8 @@ KUBECONFIG_PATH="$HOME/.kube/config"
 # --- Helm ---
 HELM_VERSION="latest"   # or pin, e.g. "v3.14.4"
 
-# --- GitLab Runner ---
-GITLAB_RUNNER_NAMESPACE="ci"
+# --- Gitea Runner ---
+GITEA_RUNNER_NAMESPACE="ci"
 
 # --- k9s ---
 K9S_VERSION="latest"   # or pin, e.g. "v0.32.5"

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: gitlab-runner-config
+  name: gitea-runner-config
   namespace: ci
 spec:
   accessModes: [ReadWriteOnce]
