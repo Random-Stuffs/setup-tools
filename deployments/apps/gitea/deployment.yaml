@@ -40,15 +40,6 @@ spec:
               value: "true"
             - name: GITEA__service__DISABLE_REGISTRATION
               value: "true"
-            - name: GITEA_ADMIN_USER
-              value: admin
-            - name: GITEA_ADMIN_EMAIL
-              value: admin@gitea.homelab.local
-            - name: GITEA_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: gitea-secret
-                  key: GITEA_ADMIN_PASSWORD
           resources:
             requests:
               memory: "128Mi"

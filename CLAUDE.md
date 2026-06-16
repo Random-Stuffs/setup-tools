@@ -27,10 +27,11 @@ scripts/
 │   ├── 04_docker.sh            # Docker CE + Compose v2 plugin + log rotation
 │   ├── 05_k3s.sh               # k3s with default containerd runtime
 │   ├── 06_helm.sh              # Helm 3
-│   ├── 07_gitea_runner.sh      # Creates ci namespace + PVC; runner deployment is applied after Gitea is up
+│   ├── 07_gitea_runner.sh      # Creates ci namespace + PVC; runner deployment applied after Gitea is up
 │   └── 08_k9s.sh               # k9s TUI binary (ARM64, auto-detects arch)
 ├── homelab_essential_setup.sh  # Orchestrator: sources components 01–04
-└── homelab_cluster_setup.sh    # Orchestrator: sources components 05–08
+├── homelab_cluster_setup.sh    # Orchestrator: sources components 05–08
+└── deploy_gitea.sh             # Deploys Gitea end-to-end: secret → manifests → admin user
 ```
 
 ### `02_python.sh` — parameterizable Python install
@@ -99,14 +100,10 @@ kubectl apply -f deployments/infra/cloudflared/
 kubectl apply -f deployments/mcp/mempalace/
 kubectl apply -f deployments/docs/
 
-# Gitea (aplicar secret manualmente para não commitar senha):
-kubectl apply -f deployments/apps/gitea/pvc.yaml
-kubectl create secret generic gitea-secret --from-literal=GITEA_ADMIN_PASSWORD=<sua-senha> -n apps
-kubectl apply -f deployments/apps/gitea/deployment.yaml
-kubectl apply -f deployments/apps/gitea/service.yaml
-kubectl apply -f deployments/apps/gitea/ingress.yaml
+# Gitea (cria secret, aplica manifestos e cria usuário admin em um comando):
+bash scripts/deploy_gitea.sh
 
-# Após Gitea estar up (~30s), registrar o runner:
+# Após Gitea estar up, registrar o runner:
 # Token: Admin → Site Administration → Actions → Runners
 kubectl create secret generic gitea-runner-secret --from-literal=GITEA_RUNNER_REGISTRATION_TOKEN=<token> -n ci
 kubectl apply -f deployments/ci/gitea-runner/deployment.yaml
