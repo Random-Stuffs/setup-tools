@@ -27,7 +27,6 @@ spec:
                 gitlab_rails['gitlab_shell_ssh_port'] = 2222
                 prometheus_monitoring['enable'] = false
                 alertmanager['enable'] = false
-                grafana['enable'] = false
                 sidekiq['concurrency'] = 5
                 puma['worker_processes'] = 2
                 postgresql['shared_buffers'] = '128MB'
