@@ -27,7 +27,7 @@ scripts/
 │   ├── 04_docker.sh            # Docker CE + Compose v2 plugin + log rotation
 │   ├── 05_k3s.sh               # k3s with default containerd runtime
 │   ├── 06_helm.sh              # Helm 3
-│   ├── 07_arc.sh               # ARC scale-set controller + runner (reads GITHUB_PAT)
+│   ├── 07_gitlab_runner.sh     # Deploys GitLab Runner pod to k3s (registration is manual)
 │   └── 08_k9s.sh               # k9s TUI binary (ARM64, auto-detects arch)
 ├── homelab_essential_setup.sh  # Orchestrator: sources components 01–04
 └── homelab_cluster_setup.sh    # Orchestrator: sources components 05–08
@@ -53,12 +53,10 @@ Each version installs to `/usr/local/bin/python3.XX` with a short alias `python3
 sudo bash scripts/homelab_essential_setup.sh
 
 # Step 2 — cluster
-export GITHUB_PAT="ghp_..."
-sudo -E bash scripts/homelab_cluster_setup.sh
+sudo bash scripts/homelab_cluster_setup.sh
 ```
 
-`03_nvm_node.sh` must not run as root — the orchestrator invokes it via `sudo -u $REAL_USER`.  
-`07_arc.sh` requires `GITHUB_PAT` to be set before running; the cluster orchestrator enforces this.
+`03_nvm_node.sh` must not run as root — the orchestrator invokes it via `sudo -u $REAL_USER`.
 
 ---
 
@@ -70,11 +68,21 @@ deployments/
 ├── docs/                       # Docusaurus sites — namespace: docs
 │   ├── docs-main/              # nginx:alpine, Traefik IngressRoute (docs.homelab.local)
 │   └── docs-internal/          # nginx:alpine, Traefik IngressRoute (internal.homelab.local)
-├── apps/                       # General applications — namespace: apps
+├── apps/
+│   └── gitlab/                 # GitLab CE — namespace: apps (gitlab.homelab.local)
+│       ├── pvc.yaml            # 10Gi local-path PVC (bundled PG + Redis + repos)
+│       ├── secret.yaml         # Template: GITLAB_ROOT_PASSWORD (populate before apply)
+│       ├── deployment.yaml     # gitlab/gitlab-ce:latest, 3Gi limit
+│       ├── service.yaml        # ClusterIP porta 80
+│       └── ingress.yaml        # IngressRoute Traefik (traefik.io/v1alpha1)
 ├── dev/                        # Dev/test tooling — namespace: dev
 │   └── trycloudflare.yaml      # Quick tunnels (no account) pointing to docs/* services
 ├── mcp/mempalace/              # StatefulSet + headless Service + local-path PVC (2Gi)
-├── ci/arc/                     # Helm values files for ARC controller + runner scale-set
+├── ci/
+│   ├── arc/                    # Kept for reference (replaced by GitLab Runner)
+│   └── gitlab-runner/          # GitLab Runner — namespace: ci
+│       ├── pvc.yaml            # 1Gi PVC para /etc/gitlab-runner (config persiste restarts)
+│       └── deployment.yaml     # gitlab/gitlab-runner:latest + docker.sock mount
 ├── infra/cloudflared/          # Named tunnel Deployment + secret template (token via Secret)
 └── data/                       # postgres | mongodb | redis | elasticsearch | kibana | pgadmin
 ```
@@ -89,13 +97,26 @@ kubectl apply -f deployments/data/
 kubectl apply -f deployments/infra/cloudflared/
 kubectl apply -f deployments/mcp/mempalace/
 kubectl apply -f deployments/docs/
-# ARC is installed via Helm (see 07_arc.sh), not kubectl apply
 
-# Dev tunnels (optional — para testes):
+# GitLab (aplicar secret manualmente para não commitar senha):
+kubectl apply -f deployments/apps/gitlab/pvc.yaml
+kubectl create secret generic gitlab-secret \
+  --from-literal=GITLAB_ROOT_PASSWORD=<sua-senha> -n apps
+kubectl apply -f deployments/apps/gitlab/deployment.yaml
+kubectl apply -f deployments/apps/gitlab/service.yaml
+kubectl apply -f deployments/apps/gitlab/ingress.yaml
+
+# Após GitLab estar up (~5 min), registrar o runner:
+# Token: Admin Area → CI/CD → Runners → Register an instance runner
+kubectl exec -n ci deploy/gitlab-runner -- gitlab-runner register \
+  --non-interactive --url http://gitlab.homelab.local \
+  --registration-token <TOKEN> --executor docker \
+  --docker-image alpine:latest --description pi-k3s-runner \
+  --tag-list pi,docker,homelab
+
+# Dev tunnels (opcional):
 kubectl apply -f deployments/dev/trycloudflare.yaml
-# Ver URLs geradas:
 kubectl logs -n dev deployment/cloudflared-dev-docs-main | grep trycloudflare.com
-# Remover tunnels de dev:
 kubectl delete -f deployments/dev/trycloudflare.yaml
 ```
 
@@ -106,24 +127,17 @@ kubectl delete -f deployments/dev/trycloudflare.yaml
 - **Mempalace** — `StatefulSet` (not Deployment) so the PVC identity is preserved across restarts. Headless service gives stable DNS `mempalace-0.mempalace.mcp`. Backup: `kubectl cp mcp/mempalace-0:/data ./backup`.
 - **cloudflared** — named tunnel token stored in a Secret; routing rules live in the Cloudflare dashboard pointing to `<service>.<namespace>.svc.cluster.local`.
 - **Elasticsearch / Kibana** — heavy (1 GiB limit each); treat as optional on a 4 GB Pi. Requires `vm.max_map_count=262144` on the host.
-- **ARC runner scale-set** — `minRunners: 0` (scale-to-zero when idle). Mounts `/var/run/docker.sock` so runners can execute `docker build` against the host Docker daemon. Runner is registered at repo level (`gresas/carlos-geo-hub`) — label: `homelab-runner`.
+- **GitLab Runner** — deployed as Deployment in namespace `ci`. Config persists in a 1Gi PVC (`/etc/gitlab-runner`) so registration survives pod restarts. Mounts `/var/run/docker.sock` for Docker-in-Docker builds. Registration is manual after GitLab is up (see apply order above).
 
 ---
 
 ## CI/CD Workflow
 
-`workflows/github/build-and-deploy.yaml` is the per-repo template. Copy it to `.github/workflows/deploy.yaml` in each application repo — no edits needed.
+CI/CD is handled by GitLab Pipelines (`.gitlab-ci.yml` in each app repo), executed by the GitLab Runner deployed in namespace `ci`.
 
-Pipeline: checkout → GHCR login → `docker/build-push-action` (SHA + `latest` tags, build cache) → `envsubst` on `.k8s/*.yaml` → `kubectl apply` → `kubectl rollout status --timeout=120s` → `docker image prune -f`.
+Runner tags: `pi`, `docker`, `homelab`. Use `tags: [pi]` in pipeline jobs to target this runner.
 
-**Variables resolved at runtime:**
-- `APP_NAME` — `github.event.repository.name` (repo name, no org prefix)
-- `NAMESPACE` — `vars.DEPLOY_NAMESPACE` (set in repo Settings → Variables → Actions)
-- `IMAGE` — `ghcr.io/<org>/<repo>:<sha>` (lowercased)
-
-The runner is `homelab-runner` (registered for `gresas/carlos-geo-hub`; scale-set controller in namespace `ci`).
-
-Legacy files (`build-local-legacy.yaml`, `runner-legacy.yaml`) are kept for reference only.
+The `workflows/github/` directory contains legacy GitHub Actions templates kept for reference.
 
 ---
 
@@ -135,10 +149,10 @@ Legacy files (`build-local-legacy.yaml`, `runner-legacy.yaml`) are kept for refe
 | cloudflared | 64 MiB | 128 MiB |
 | Docusaurus | 64 MiB | 128 MiB |
 | Mempalace | 128 MiB | 512 MiB |
-| ARC runner idle | 0 MiB | — (scale-to-zero) |
-| ARC runner active | 256 MiB | 512 MiB |
+| GitLab CE (bundled PG + Redis) | 1.5 GiB | 3 GiB |
+| GitLab Runner (idle) | 128 MiB | 512 MiB |
 | Postgres | 128 MiB | 512 MiB |
 | Redis | 32 MiB | 128 MiB |
-| **Idle total** | **~780 MiB** | — |
+| **Idle total** | **~2.4 GiB** | — |
 
-Elasticsearch + Kibana add up to 2 GiB of limits — deploy only if the Pi has headroom.
+Elasticsearch + Kibana add up to 2 GiB of limits — deploy only if the Pi has 8 GB RAM.

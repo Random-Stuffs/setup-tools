@@ -24,13 +24,8 @@ KUBECONFIG_PATH="$HOME/.kube/config"
 # --- Helm ---
 HELM_VERSION="latest"   # or pin, e.g. "v3.14.4"
 
-# --- ARC (Actions Runner Controller) ---
-ARC_CHART_VERSION="0.13.1"
-GITHUB_CONFIG_URL="https://github.com/Random-Stuffs"   # org URL
-GITHUB_RUNNER_NAMESPACE="ci"
-GITHUB_RUNNER_NAME="org-runner"
-# GITHUB_PAT must be set in the environment before running 07_arc.sh:
-#   export GITHUB_PAT="ghp_..."  (scopes: admin:org, repo)
+# --- GitLab Runner ---
+GITLAB_RUNNER_NAMESPACE="ci"
 
 # --- k9s ---
 K9S_VERSION="latest"   # or pin, e.g. "v0.32.5"
