@@ -16,6 +16,8 @@ spec:
       containers:
         - name: act-runner
           image: gitea/act_runner:latest
+          securityContext:
+            privileged: true
           env:
             - name: GITEA_INSTANCE_URL
               value: http://gitea.apps.svc.cluster.local:3000
@@ -38,12 +40,23 @@ spec:
           volumeMounts:
             - name: runner-data
               mountPath: /data
-            - name: docker-sock
-              mountPath: /var/run/docker.sock
+            - name: k3s-containerd-sock
+              mountPath: /run/k3s/containerd/containerd.sock
+            - name: k3s-bin
+              mountPath: /usr/local/bin/k3s
+            - name: k3s-kubeconfig
+              mountPath: /etc/rancher/k3s/k3s.yaml
+              readOnly: true
       volumes:
         - name: runner-data
           persistentVolumeClaim:
             claimName: gitea-runner-config
-        - name: docker-sock
+        - name: k3s-containerd-sock
           hostPath:
-            path: /var/run/docker.sock
+            path: /run/k3s/containerd/containerd.sock
+        - name: k3s-bin
+          hostPath:
+            path: /usr/local/bin/k3s
+        - name: k3s-kubeconfig
+          hostPath:
+            path: /etc/rancher/k3s/k3s.yaml
