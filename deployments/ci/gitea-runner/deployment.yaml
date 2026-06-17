@@ -47,6 +47,8 @@ spec:
             - name: k3s-kubeconfig
               mountPath: /etc/rancher/k3s/k3s.yaml
               readOnly: true
+            - name: k3s-rancher-data
+              mountPath: /var/lib/rancher
       volumes:
         - name: runner-data
           persistentVolumeClaim:
@@ -60,3 +62,6 @@ spec:
         - name: k3s-kubeconfig
           hostPath:
             path: /etc/rancher/k3s/k3s.yaml
+        - name: k3s-rancher-data
+          hostPath:
+            path: /var/lib/rancher
