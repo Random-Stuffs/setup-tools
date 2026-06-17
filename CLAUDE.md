@@ -121,7 +121,16 @@ kubectl delete -f deployments/dev/trycloudflare.yaml
 - **Mempalace** — `StatefulSet` (not Deployment) so the PVC identity is preserved across restarts. Headless service gives stable DNS `mempalace-0.mempalace.mcp`. Backup: `kubectl cp mcp/mempalace-0:/data ./backup`.
 - **cloudflared** — named tunnel token stored in a Secret; routing rules live in the Cloudflare dashboard pointing to `<service>.<namespace>.svc.cluster.local`.
 - **Elasticsearch / Kibana** — heavy (1 GiB limit each); treat as optional on a 4 GB Pi. Requires `vm.max_map_count=262144` on the host.
-- **Gitea** — namespace `apps`; SQLite backend (fully self-contained in 5Gi PVC). SSH git available via NodePort 30022. Container Registry built-in (Gitea Packages, OCI-compatible). `strategy: Recreate` prevents dual-pod PVC conflict.
+- **Gitea** — namespace `apps`; SQLite backend (fully self-contained in 5Gi PVC). SSH git available via NodePort 30022. Container Registry built-in (Gitea Packages, OCI-compatible). `strategy: Recreate` prevents dual-pod PVC conflict. Backup:
+  ```bash
+  # Tudo (DB + repos + packages):
+  POD=$(kubectl get pod -n apps -l app=gitea -o name | cut -d/ -f2)
+  kubectl cp apps/$POD:/data ./gitea-backup-$(date +%Y%m%d)
+
+  # Só o banco SQLite:
+  kubectl cp apps/$POD:/data/gitea/gitea.db ./gitea.db
+  ```
+  Conteúdo do PVC: `/data/gitea/gitea.db` (banco), `/data/gitea/repositories/` (repos git), `/data/gitea/packages/` (registry).
 - **Gitea Runner** — `gitea/act_runner` in namespace `ci`. Registers automatically via `GITEA_RUNNER_REGISTRATION_TOKEN` env var. Config persists in 1Gi PVC. Mounts `/var/run/docker.sock`. Gitea Actions uses GitHub Actions YAML syntax.
 
 ---
