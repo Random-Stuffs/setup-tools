@@ -166,6 +166,25 @@ On every push to `master` or `main`, the workflow will:
 
 ## Maintenance
 
+### Backup / restore Gitea data
+
+Gitea uses SQLite — everything (DB, repos, packages) lives in a single 5Gi PVC mounted at `/data`.
+
+```bash
+POD=$(kubectl get pod -n apps -l app=gitea -o name | cut -d/ -f2)
+
+# Full backup (DB + repos + packages):
+kubectl cp apps/$POD:/data ./gitea-backup-$(date +%Y%m%d)
+
+# SQLite only:
+kubectl cp apps/$POD:/data/gitea/gitea.db ./gitea.db
+
+# Restore:
+kubectl cp ./gitea-backup-YYYYMMDD apps/$POD:/data
+```
+
+PVC contents: `/data/gitea/gitea.db` (database), `/data/gitea/repositories/` (git repos), `/data/gitea/packages/` (container registry).
+
 ### Backup / restore Mempalace data
 
 ```bash
