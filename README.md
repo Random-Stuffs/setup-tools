@@ -170,20 +170,48 @@ On every push to `master` or `main`, the workflow will:
 
 Gitea uses SQLite — everything (DB, repos, packages) lives in a single 5Gi PVC mounted at `/data`.
 
+#### Backup automático (recomendado)
+
+Instala um cron diário às 05:00 que salva em `~/backups/gitea/` e mantém os últimos 4 backups:
+
 ```bash
-POD=$(kubectl get pod -n apps -l app=gitea -o name | cut -d/ -f2)
+# Instalar (como usuário regular, sem sudo):
+bash scripts/setup_backup_cron.sh
 
-# Full backup (DB + repos + packages):
-kubectl cp apps/$POD:/data ./gitea-backup-$(date +%Y%m%d)
+# Testar manualmente:
+bash scripts/backup_gitea.sh
 
-# SQLite only:
-kubectl cp apps/$POD:/data/gitea/gitea.db ./gitea.db
-
-# Restore:
-kubectl cp ./gitea-backup-YYYYMMDD apps/$POD:/data
+# Ver backups e log:
+ls -lh ~/backups/gitea/
+tail -f ~/backups/gitea/backup.log
 ```
 
-PVC contents: `/data/gitea/gitea.db` (database), `/data/gitea/repositories/` (git repos), `/data/gitea/packages/` (container registry).
+Configuração em `scripts/config.sh`: `BACKUP_DIR` e `BACKUP_RETAIN_COUNT`.
+
+#### Recuperação após reinstall do k3s
+
+```bash
+# 1. Reinstalar cluster e subir Gitea do zero:
+sudo bash scripts/homelab_cluster_setup.sh
+bash scripts/deploy_gitea.sh
+
+# 2. Parar o Gitea para restaurar sem conflito de escrita:
+kubectl scale deployment gitea -n apps --replicas=0
+kubectl wait --for=delete pod -l app=gitea -n apps --timeout=60s
+
+# 3. Subir o pod para montar o PVC vazio, depois restaurar:
+kubectl scale deployment gitea -n apps --replicas=1
+kubectl wait --for=condition=ready pod -l app=gitea -n apps --timeout=120s
+BACKUP=$(ls -1dt ~/backups/gitea/[0-9]* | head -1)
+POD=$(kubectl get pod -n apps -l app=gitea -o name | cut -d/ -f2)
+kubectl cp "$BACKUP/." "apps/$POD:/data"
+
+# 4. Reiniciar para carregar o estado restaurado:
+kubectl rollout restart deployment/gitea -n apps
+kubectl rollout status deployment/gitea -n apps --timeout=120s
+```
+
+> Após a restauração, usuários, repos e tokens voltam ao estado do backup — o admin criado pelo `deploy_gitea.sh` é sobrescrito.
 
 ### Backup / restore Mempalace data
 

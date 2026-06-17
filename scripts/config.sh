@@ -29,3 +29,7 @@ GITEA_RUNNER_NAMESPACE="ci"
 
 # --- k9s ---
 K9S_VERSION="latest"   # or pin, e.g. "v0.32.5"
+
+# --- Backup ---
+BACKUP_DIR="$HOME/backups/gitea"
+BACKUP_RETAIN_COUNT=4   # number of daily backups to keep

@@ -121,16 +121,21 @@ kubectl delete -f deployments/dev/trycloudflare.yaml
 - **Mempalace** — `StatefulSet` (not Deployment) so the PVC identity is preserved across restarts. Headless service gives stable DNS `mempalace-0.mempalace.mcp`. Backup: `kubectl cp mcp/mempalace-0:/data ./backup`.
 - **cloudflared** — named tunnel token stored in a Secret; routing rules live in the Cloudflare dashboard pointing to `<service>.<namespace>.svc.cluster.local`.
 - **Elasticsearch / Kibana** — heavy (1 GiB limit each); treat as optional on a 4 GB Pi. Requires `vm.max_map_count=262144` on the host.
-- **Gitea** — namespace `apps`; SQLite backend (fully self-contained in 5Gi PVC). SSH git available via NodePort 30022. Container Registry built-in (Gitea Packages, OCI-compatible). `strategy: Recreate` prevents dual-pod PVC conflict. Backup:
-  ```bash
-  # Tudo (DB + repos + packages):
-  POD=$(kubectl get pod -n apps -l app=gitea -o name | cut -d/ -f2)
-  kubectl cp apps/$POD:/data ./gitea-backup-$(date +%Y%m%d)
-
-  # Só o banco SQLite:
-  kubectl cp apps/$POD:/data/gitea/gitea.db ./gitea.db
-  ```
-  Conteúdo do PVC: `/data/gitea/gitea.db` (banco), `/data/gitea/repositories/` (repos git), `/data/gitea/packages/` (registry).
+- **Gitea** — namespace `apps`; SQLite backend (fully self-contained in 5Gi PVC). SSH git available via NodePort 30022. Container Registry built-in (Gitea Packages, OCI-compatible). `strategy: Recreate` prevents dual-pod PVC conflict.
+  - **Backup automático**: `bash scripts/setup_backup_cron.sh` instala cron diário às 05:00 em `~/backups/gitea/`. Teste manual: `bash scripts/backup_gitea.sh`. Retenção configurável via `BACKUP_RETAIN_COUNT` em `config.sh` (padrão: 4 dias).
+  - **Recuperação após reinstall do k3s**:
+    ```bash
+    sudo bash scripts/homelab_cluster_setup.sh && bash scripts/deploy_gitea.sh
+    kubectl scale deployment gitea -n apps --replicas=0
+    kubectl wait --for=delete pod -l app=gitea -n apps --timeout=60s
+    kubectl scale deployment gitea -n apps --replicas=1
+    kubectl wait --for=condition=ready pod -l app=gitea -n apps --timeout=120s
+    BACKUP=$(ls -1dt ~/backups/gitea/[0-9]* | head -1)
+    POD=$(kubectl get pod -n apps -l app=gitea -o name | cut -d/ -f2)
+    kubectl cp "$BACKUP/." "apps/$POD:/data"
+    kubectl rollout restart deployment/gitea -n apps
+    ```
+  - PVC contents: `/data/gitea/gitea.db` (DB), `/data/gitea/repositories/` (repos), `/data/gitea/packages/` (registry).
 - **Gitea Runner** — `gitea/act_runner` in namespace `ci`. Registers automatically via `GITEA_RUNNER_REGISTRATION_TOKEN` env var. Config persists in 1Gi PVC. Mounts `/var/run/docker.sock`. Gitea Actions uses GitHub Actions YAML syntax.
 
 ---
