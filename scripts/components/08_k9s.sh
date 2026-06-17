@@ -41,5 +41,13 @@ mv /tmp/k9s "$INSTALL_DIR/k9s"
 chmod +x "$INSTALL_DIR/k9s"
 rm -f "/tmp/${TARBALL}"
 
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME=$(eval echo "~$REAL_USER")
+
+# Pre-create k9s state dir owned by the real user so it is never created by root.
+K9S_STATE_DIR="$REAL_HOME/.local/state/k9s"
+mkdir -p "$K9S_STATE_DIR"
+chown -R "$REAL_USER:$REAL_USER" "$K9S_STATE_DIR"
+
 log_info "k9s ${K9S_TAG} installed at ${INSTALL_DIR}/k9s"
 log_info "Usage: k9s   (reads KUBECONFIG or ~/.kube/config)"
