@@ -1,5 +1,6 @@
-# DEPRECATED: Replaced by build-and-deploy.yaml which pushes to GHCR,
-# uses SHA-tagged images, and waits for rollout status.
+# DEPRECATED: Replaced by build-and-deploy.yaml.
+# Issues: uses actions/checkout@v4 (requires Node.js), docker (not available on k3s),
+# and kubectl rollout restart (no health check). All fixed in build-and-deploy.yaml.
 name: Local Build on Raspberry
 
 on:
