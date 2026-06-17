@@ -1,18 +1,29 @@
 # Generic CI/CD template for deploying a containerised app to the homelab k3s cluster.
 #
-# Copy this file to .github/workflows/deploy.yaml in any application repo.
-# No edits needed — everything is derived from git context and GitHub variables.
+# Copy this file to .github/workflows/deploy.yml in any application repo.
+# No edits needed — everything is derived from git context and Gitea variables.
 #
 # Prerequisites in the app repo:
-#   - Dockerfile at the repo root.
-#   - .k8s/ directory with deployment.yaml, service.yaml, ingress.yaml,
-#     trycloudflare.yaml (use deployments/templates/docusaurus/ as reference).
-#   - GitHub variable DEPLOY_NAMESPACE set in Settings → Variables → Actions.
+#   - Dockerfile at the repo root (multi-stage: builder + nginx:alpine runtime recommended).
+#   - nginx.conf at the repo root (if using nginx:alpine runtime).
+#   - .k8s/ directory with deployment.yaml, service.yaml, ingress.yaml.
+#     Use deployments/templates/ as reference.
+#   - Gitea variable DEPLOY_NAMESPACE set in Settings → Variables → Actions.
 #
 # Runtime variables (resolved by the workflow):
 #   APP_NAME  — github.event.repository.name  (e.g. carlos-geo-hub)
 #   NAMESPACE — vars.DEPLOY_NAMESPACE          (e.g. docs)
-#   IMAGE     — <repo-name>:<git-sha>           (local image, imported into k3s containerd)
+#   IMAGE     — <repo-name>:<git-sha>           (imported directly into k3s containerd)
+#
+# Infrastructure assumptions:
+#   - Runner is the gitea/act_runner pod in the ci namespace (label: homelab).
+#   - Runner pod has privileged: true and the following hostPath mounts:
+#       /run/k3s/containerd/containerd.sock
+#       /usr/local/bin/k3s
+#       /etc/rancher/k3s/k3s.yaml (readOnly)
+#       /var/lib/rancher
+#   - Runner PVC is mounted at /data (used for BuildKit cache).
+#   - See deployments/ci/gitea-runner/deployment.yaml.
 
 name: Build and Deploy
 
@@ -22,42 +33,80 @@ on:
 
 jobs:
   build-and-deploy:
-    runs-on: org-runner
+    runs-on: [homelab]
 
-    permissions:
-      contents: read
+    env:
+      APP_NAME: ${{ github.event.repository.name }}
+      IMAGE: "${{ github.event.repository.name }}:${{ github.sha }}"
+      NAMESPACE: ${{ vars.DEPLOY_NAMESPACE }}
+      NERDCTL_VERSION: "2.0.4"
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Build and import image into k3s
+      - name: Checkout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          IMAGE="${{ github.event.repository.name }}:${{ github.sha }}"
-          docker build -t "$IMAGE" .
-          docker save "$IMAGE" | sudo k3s ctr images import -
+          SERVER=$(echo "${{ github.server_url }}" | sed 's|://|://x-token-auth:'"${GITHUB_TOKEN}"'@|')
+          git clone --depth 1 --branch "${{ github.ref_name }}" \
+            "${SERVER}/${{ github.repository }}.git" .
 
-      - name: Install kubectl
+      - name: Setup nerdctl
         run: |
-          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-          KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt)
-          curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
+          if ! command -v nerdctl &>/dev/null || ! command -v buildctl &>/dev/null || ! command -v runc &>/dev/null; then
+            ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+            wget -qO /tmp/nerdctl.tar.gz \
+              "https://github.com/containerd/nerdctl/releases/download/v${NERDCTL_VERSION}/nerdctl-full-${NERDCTL_VERSION}-linux-${ARCH}.tar.gz"
+            tar -C /usr/local -xzf /tmp/nerdctl.tar.gz bin/nerdctl bin/buildkitd bin/buildctl bin/runc
+            rm /tmp/nerdctl.tar.gz
+          fi
+
+      - name: Build image
+        run: |
+          pkill -x buildkitd 2>/dev/null || true
+          rm -f /run/buildkit/buildkitd.sock
+          mkdir -p /run/buildkit
+          buildkitd \
+            --addr unix:///run/buildkit/buildkitd.sock \
+            --oci-worker=true \
+            --containerd-worker=false \
+            --root /data/buildkit > /tmp/buildkitd.log 2>&1 &
+          for i in $(seq 1 30); do
+            buildctl --addr unix:///run/buildkit/buildkitd.sock debug workers &>/dev/null && break
+            sleep 1
+          done
+          buildctl --addr unix:///run/buildkit/buildkitd.sock debug workers &>/dev/null \
+            || { echo "buildkitd falhou ao iniciar:"; cat /tmp/buildkitd.log; exit 1; }
+          BUILDKIT_HOST=unix:///run/buildkit/buildkitd.sock \
+          nerdctl \
+            --address /run/k3s/containerd/containerd.sock \
+            --namespace k8s.io \
+            build \
+            --cache-from type=local,src=/data/buildcache \
+            --cache-to   type=local,dest=/data/buildcache,mode=max \
+            -t "${IMAGE}" . 2>&1 | tee /tmp/build.log | tail -30 \
+          || { echo "=== Build falhou. Log completo:"; cat /tmp/build.log; exit 1; }
 
       - name: Apply k8s manifests
         run: |
-          export APP_NAME="${{ github.event.repository.name }}"
-          export NAMESPACE="${{ vars.DEPLOY_NAMESPACE }}"
-          export IMAGE="${{ github.event.repository.name }}:${{ github.sha }}"
           for f in .k8s/*.yaml; do
-            envsubst < "$f" | kubectl apply -f -
+            sed \
+              -e "s|\${APP_NAME}|${APP_NAME}|g" \
+              -e "s|\${IMAGE}|${IMAGE}|g" \
+              -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
+              "$f" | KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl apply -f -
           done
 
       - name: Wait for rollout
         run: |
-          kubectl rollout status deployment/${{ github.event.repository.name }} \
-            --namespace=${{ vars.DEPLOY_NAMESPACE }} \
+          KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl rollout status deployment/"${APP_NAME}" \
+            --namespace="${NAMESPACE}" \
             --timeout=120s
 
       - name: Prune dangling images
         if: always()
-        run: docker image prune -f
+        run: |
+          BUILDKIT_HOST=unix:///run/buildkit/buildkitd.sock \
+          nerdctl \
+            --address /run/k3s/containerd/containerd.sock \
+            --namespace k8s.io \
+            image prune -f
