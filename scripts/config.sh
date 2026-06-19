@@ -32,7 +32,7 @@ K9S_VERSION="latest"   # or pin, e.g. "v0.32.5"
 
 # --- Backup ---
 BACKUP_DIR="$HOME/backups/gitea"
-BACKUP_RETAIN_COUNT=4   # number of daily backups to keep
+BACKUP_RETAIN_COUNT=15   # number of daily backups to keep
 
 # GPG recipient (email or fingerprint) used to encrypt backups.
 # Run scripts/setup_backup_encryption.sh to generate the key pair.
