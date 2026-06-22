@@ -77,7 +77,7 @@ deployments/
 │       ├── service.yaml        # ClusterIP :3000 (HTTP) + NodePort 30022 (SSH git)
 │       └── ingress.yaml        # IngressRoute Traefik (traefik.io/v1alpha1)
 ├── dev/                        # Dev/test tooling — namespace: dev
-│   └── trycloudflare.yaml      # Quick tunnels (no account) pointing to docs/* services
+│   └── trycloudflare.yaml      # Quick tunnels (no account) pointing to docs/*, writing
 ├── mcp/mempalace/              # StatefulSet + headless Service + local-path PVC (2Gi)
 ├── ci/
 │   ├── arc/                    # Kept for reference (legacy GitHub Actions runner)
@@ -112,6 +112,14 @@ kubectl apply -f deployments/ci/gitea-runner/deployment.yaml
 kubectl apply -f deployments/dev/trycloudflare.yaml
 kubectl logs -n dev deployment/cloudflared-dev-docs-main | grep trycloudflare.com
 kubectl delete -f deployments/dev/trycloudflare.yaml
+
+# Writing editor — deploy via CI (DEPLOY_NAMESPACE=apps no Gitea).
+# O PVC está em .k8s/pvc.yaml no repo do app e é aplicado junto com o deploy.
+# Seed inicial dos arquivos .md (após o primeiro deploy):
+#   kubectl cp ./writing/. apps/<pod>:/data/writing/
+# Auth (opcional — sem secret o serviço sobe sem autenticação):
+#   kubectl create secret generic writing-editor-secret \
+#     --from-literal=AUTH_USER=usuario --from-literal=AUTH_PASS=senha -n apps
 ```
 
 ### Key design decisions in manifests
@@ -162,7 +170,8 @@ The `workflows/github/` directory contains legacy GitHub Actions templates kept 
 | Gitea Runner (idle) | 128 MiB | 512 MiB |
 | Postgres | 128 MiB | 512 MiB |
 | Redis | 32 MiB | 128 MiB |
-| **Idle total** | **~944 MiB** | — |
+| writing-editor | 64 MiB | 128 MiB |
+| **Idle total** | **~1008 MiB** | — |
 
 ~2.7 GiB free for CI/CD job peaks and other workloads.
 Elasticsearch + Kibana add up to 2 GiB of limits — deploy only if the Pi has 8 GB RAM.
