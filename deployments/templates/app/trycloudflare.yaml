@@ -1,0 +1,37 @@
+# Ephemeral tunnel via trycloudflare — develop (namespace dev).
+#
+# Sem conta, sem token. URL aleatória *.trycloudflare.com gerada no startup,
+# muda a cada restart do pod. Use apenas para testes de develop.
+#
+# Aplicado pelo workflow na branch develop; URL exibida no log do job.
+# Ver URL: kubectl logs -n dev deployment/cloudflared-dev-${APP_NAME} | grep trycloudflare.com
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-dev-${APP_NAME}
+  namespace: dev
+  labels:
+    env: dev
+    app: ${APP_NAME}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared-dev-${APP_NAME}
+  template:
+    metadata:
+      labels:
+        app: cloudflared-dev-${APP_NAME}
+        env: dev
+    spec:
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:latest
+        args: [tunnel, --no-autoupdate, --url, "http://${APP_NAME}.${NAMESPACE}.svc.cluster.local:${PORT}"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi

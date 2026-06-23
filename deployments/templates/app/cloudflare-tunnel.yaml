@@ -1,0 +1,53 @@
+# Named Cloudflare tunnel — produção (namespace prd).
+#
+# Pré-requisito: criar o Secret no namespace prd com o token do tunnel:
+#   kubectl create secret generic cloudflare-tunnel-${APP_NAME} \
+#     --from-literal=token="<tunnel-token>" -n prd
+#
+# No dashboard Cloudflare Zero Trust, configure a rota:
+#   <hostname-publico> → http://${APP_NAME}.${NAMESPACE}.svc.cluster.local:${PORT}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-${APP_NAME}
+  namespace: prd
+  labels:
+    app: ${APP_NAME}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared-${APP_NAME}
+  template:
+    metadata:
+      labels:
+        app: cloudflared-${APP_NAME}
+    spec:
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:latest
+        args:
+        - tunnel
+        - --no-autoupdate
+        - run
+        - --token
+        - $(TUNNEL_TOKEN)
+        env:
+        - name: TUNNEL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: cloudflare-tunnel-${APP_NAME}
+              key: token
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 2000
+          initialDelaySeconds: 10
+          periodSeconds: 20

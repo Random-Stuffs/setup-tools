@@ -32,4 +32,9 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: prd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
   name: data
