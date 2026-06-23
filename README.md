@@ -149,11 +149,20 @@ Each application repo needs two things:
 └── trycloudflare.yaml    # ephemeral public URL via cloudflared
 ```
 
-**3. GitHub variable** — in the repo's Settings → Variables → Actions, add:
+**3. GitHub variables** — in the repo's Settings → Variables → Actions, add:
 
 ```
 DEPLOY_NAMESPACE = docs   # (or apps, or whichever namespace this app goes into)
 ```
+
+Optional:
+
+```
+CLOUDFLARE_TUNNEL = false  # omit or set "true" to expose via Cloudflare (default)
+                           # set "false" for internal-only deploy (homelab.local, no cloudflared)
+```
+
+On `develop`, the tunnel is a temporary trycloudflare URL. On `master`/`main`, it uses a named Cloudflare tunnel (requires the token secret — see Step 4).
 
 On every push to `master` or `main`, the workflow will:
 1. Build and push the Docker image to GHCR (tagged with the commit SHA).
