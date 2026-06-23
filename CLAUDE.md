@@ -83,10 +83,14 @@ deployments/
 ├── mcp/mempalace/              # StatefulSet + headless Service + local-path PVC (2Gi)
 ├── ci/
 │   ├── arc/                    # Kept for reference (legacy GitHub Actions runner)
-│   └── gitea-runner/           # Gitea act_runner — namespace: ci
-│       ├── pvc.yaml            # 1Gi PVC para /data (config persiste restarts)
-│       ├── secret.yaml         # Template: GITEA_RUNNER_REGISTRATION_TOKEN
-│       └── deployment.yaml     # gitea/act_runner:latest + docker.sock mount
+│   ├── gitea-runner/           # Runner site-level — namespace: ci
+│   │   ├── pvc.yaml            # 1Gi PVC (config de registro persiste restarts)
+│   │   ├── secret.yaml         # Template: GITEA_RUNNER_REGISTRATION_TOKEN (token do site admin)
+│   │   └── deployment.yaml     # name: gitea-runner, labels: pi,docker,homelab
+│   └── gitea-runner-apps/      # Runner org-scoped (apps) — namespace: ci
+│       ├── pvc.yaml            # 1Gi PVC separado (cada runner tem seu próprio /data)
+│       ├── secret.yaml         # Template: GITEA_RUNNER_REGISTRATION_TOKEN (token da org apps)
+│       └── deployment.yaml     # name: gitea-runner-apps, labels: pi,docker,homelab
 ├── infra/cloudflared/          # Secrets de infra (tokens, credentials) — namespace: infra
 ├── templates/
 │   ├── app/
@@ -109,10 +113,21 @@ kubectl apply -f deployments/docs/
 # Gitea (cria secret, aplica manifestos e cria usuário admin em um comando):
 bash scripts/deploy_gitea.sh
 
-# Após Gitea estar up, registrar o runner:
-# Token: Admin → Site Administration → Actions → Runners
-kubectl create secret generic gitea-runner-secret --from-literal=GITEA_RUNNER_REGISTRATION_TOKEN=<token> -n ci
+# Após Gitea estar up, registrar os runners (tokens separados, PVCs separados):
+#
+# Runner site-level (pode executar jobs de qualquer org/repo):
+#   Token: Admin → Site Administration → Actions → Runners
+kubectl create secret generic gitea-runner-secret \
+  --from-literal=GITEA_RUNNER_REGISTRATION_TOKEN=<token-site> -n ci
+kubectl apply -f deployments/ci/gitea-runner/pvc.yaml
 kubectl apply -f deployments/ci/gitea-runner/deployment.yaml
+
+# Runner org-scoped (apps) — executa apenas jobs da org apps:
+#   Token: Gitea → org apps → Settings → Actions → Runners
+kubectl create secret generic gitea-runner-apps-secret \
+  --from-literal=GITEA_RUNNER_REGISTRATION_TOKEN=<token-apps> -n ci
+kubectl apply -f deployments/ci/gitea-runner-apps/pvc.yaml
+kubectl apply -f deployments/ci/gitea-runner-apps/deployment.yaml
 
 # Dev tunnels (opcional):
 kubectl apply -f deployments/dev/trycloudflare.yaml
