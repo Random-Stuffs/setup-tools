@@ -4,12 +4,10 @@
 # USE APENAS PARA DESENVOLVIMENTO / TESTES.
 # A URL muda a cada restart do pod — use infra/cloudflared/deployment.yaml (named tunnel) em produção.
 #
-# Cada tunnel aponta para um serviço no namespace docs.
-# Para adicionar mais um site Docusaurus, copie um bloco abaixo e ajuste o nome/URL.
-#
 # Ver a URL gerada:
 #   kubectl logs -n dev deployment/cloudflared-dev-docs-main     | grep trycloudflare.com
 #   kubectl logs -n dev deployment/cloudflared-dev-docs-internal | grep trycloudflare.com
+#   kubectl logs -n dev deployment/cloudflared-dev-writing       | grep trycloudflare.com
 #
 # Subir todos de uma vez:
 #   kubectl apply -f deployments/dev/trycloudflare.yaml
@@ -105,6 +103,39 @@ spec:
       - name: cloudflared
         image: cloudflare/cloudflared:latest
         args: [tunnel, --no-autoupdate, --url, "http://mempalace.mcp.svc.cluster.local:3000"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+# --- writing-editor → namespace writing, porta 8080 ---
+# Útil para testar o Remotely Save do Obsidian fora da rede local.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-dev-writing
+  namespace: dev
+  labels:
+    env: dev
+    site: writing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared-dev-writing
+  template:
+    metadata:
+      labels:
+        app: cloudflared-dev-writing
+        env: dev
+    spec:
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:latest
+        args: [tunnel, --no-autoupdate, --url, "http://writing-editor.apps.svc.cluster.local:8080"]
         resources:
           requests:
             cpu: 50m

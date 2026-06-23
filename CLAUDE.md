@@ -65,7 +65,7 @@ sudo bash scripts/homelab_cluster_setup.sh
 
 ```
 deployments/
-├── namespaces.yaml             # Apply first: docs | apps | dev | mcp | ci | infra | data
+├── namespaces.yaml             # Apply first: docs | apps | dev | mcp | ci | infra | prd | data
 ├── docs/                       # Docusaurus sites — namespace: docs
 │   ├── docs-main/              # nginx:alpine, Traefik IngressRoute (docs.homelab.local)
 │   └── docs-internal/          # nginx:alpine, Traefik IngressRoute (internal.homelab.local)
@@ -77,15 +77,26 @@ deployments/
 │       ├── service.yaml        # ClusterIP :3000 (HTTP) + NodePort 30022 (SSH git)
 │       └── ingress.yaml        # IngressRoute Traefik (traefik.io/v1alpha1)
 ├── dev/                        # Dev/test tooling — namespace: dev
-│   └── trycloudflare.yaml      # Quick tunnels (no account) pointing to docs/* services
+│   └── trycloudflare.yaml      # Quick tunnels manuais (docs/*, writing); CI usa .k8s/trycloudflare.yaml
+├── prd/                        # Túneis nomeados Cloudflare — namespace: prd
+│   └── cloudflared/            # (reservado para túnel global; per-app vai em .k8s/ de cada repo)
 ├── mcp/mempalace/              # StatefulSet + headless Service + local-path PVC (2Gi)
 ├── ci/
 │   ├── arc/                    # Kept for reference (legacy GitHub Actions runner)
-│   └── gitea-runner/           # Gitea act_runner — namespace: ci
-│       ├── pvc.yaml            # 1Gi PVC para /data (config persiste restarts)
-│       ├── secret.yaml         # Template: GITEA_RUNNER_REGISTRATION_TOKEN
-│       └── deployment.yaml     # gitea/act_runner:latest + docker.sock mount
-├── infra/cloudflared/          # Named tunnel Deployment + secret template (token via Secret)
+│   ├── gitea-runner/           # Runner site-level — namespace: ci
+│   │   ├── pvc.yaml            # 1Gi PVC (config de registro persiste restarts)
+│   │   ├── secret.yaml         # Template: GITEA_RUNNER_REGISTRATION_TOKEN (token do site admin)
+│   │   └── deployment.yaml     # name: gitea-runner, labels: pi,docker,homelab
+│   └── gitea-runner-apps/      # Runner org-scoped (apps) — namespace: ci
+│       ├── pvc.yaml            # 1Gi PVC separado (cada runner tem seu próprio /data)
+│       ├── secret.yaml         # Template: GITEA_RUNNER_REGISTRATION_TOKEN (token da org apps)
+│       └── deployment.yaml     # name: gitea-runner-apps, labels: pi,docker,homelab
+├── infra/cloudflared/          # Secrets de infra (tokens, credentials) — namespace: infra
+├── templates/
+│   ├── app/
+│   │   ├── cloudflare-tunnel.yaml  # Template: túnel nomeado prd (copie para .k8s/ do app)
+│   │   └── trycloudflare.yaml      # Template: túnel ephemeral dev (copie para .k8s/ do app)
+│   └── docusaurus/             # Templates específicos para sites Docusaurus
 └── data/                       # postgres | mongodb | redis | elasticsearch | kibana | pgadmin
 ```
 
@@ -96,30 +107,48 @@ All manifests include `namespace:` explicitly. All passwords and tokens are in `
 ```bash
 kubectl apply -f deployments/namespaces.yaml
 kubectl apply -f deployments/data/
-kubectl apply -f deployments/infra/cloudflared/
 kubectl apply -f deployments/mcp/mempalace/
 kubectl apply -f deployments/docs/
 
 # Gitea (cria secret, aplica manifestos e cria usuário admin em um comando):
 bash scripts/deploy_gitea.sh
 
-# Após Gitea estar up, registrar o runner:
-# Token: Admin → Site Administration → Actions → Runners
-kubectl create secret generic gitea-runner-secret --from-literal=GITEA_RUNNER_REGISTRATION_TOKEN=<token> -n ci
+# Após Gitea estar up, registrar os runners (tokens separados, PVCs separados):
+#
+# Runner site-level (pode executar jobs de qualquer org/repo):
+#   Token: Admin → Site Administration → Actions → Runners
+kubectl create secret generic gitea-runner-secret \
+  --from-literal=GITEA_RUNNER_REGISTRATION_TOKEN=<token-site> -n ci
+kubectl apply -f deployments/ci/gitea-runner/pvc.yaml
 kubectl apply -f deployments/ci/gitea-runner/deployment.yaml
+
+# Runner org-scoped (apps) — executa apenas jobs da org apps:
+#   Token: Gitea → org apps → Settings → Actions → Runners
+kubectl create secret generic gitea-runner-apps-secret \
+  --from-literal=GITEA_RUNNER_REGISTRATION_TOKEN=<token-apps> -n ci
+kubectl apply -f deployments/ci/gitea-runner-apps/pvc.yaml
+kubectl apply -f deployments/ci/gitea-runner-apps/deployment.yaml
 
 # Dev tunnels (opcional):
 kubectl apply -f deployments/dev/trycloudflare.yaml
 kubectl logs -n dev deployment/cloudflared-dev-docs-main | grep trycloudflare.com
 kubectl delete -f deployments/dev/trycloudflare.yaml
+
+# Writing editor — deploy via CI (DEPLOY_NAMESPACE=apps no Gitea).
+# O PVC está em .k8s/pvc.yaml no repo do app e é aplicado junto com o deploy.
+# Seed inicial dos arquivos .md (após o primeiro deploy):
+#   kubectl cp ./writing/. apps/<pod>:/data/writing/
+# Auth (opcional — sem secret o serviço sobe sem autenticação):
+#   kubectl create secret generic writing-editor-secret \
+#     --from-literal=AUTH_USER=usuario --from-literal=AUTH_PASS=senha -n apps
 ```
 
 ### Key design decisions in manifests
 
 - **Docusaurus** — lives in namespace `docs`; served via `docusaurus serve` on port 3000 (no nginx needed). Traefik `IngressRoute` routes by hostname (`${APP_NAME}.homelab.local`). App manifests live in `.k8s/` inside each app repo — not here.
-- **trycloudflare (dev)** — namespace `dev`; one Deployment per service; each pod connects to the app Service via `<svc>.<namespace>.svc.cluster.local:3000`. URL rotates on restart — production uses the named tunnel in `infra/cloudflared/`.
+- **trycloudflare (dev)** — namespace `dev`; URL aleatória gerada no startup, muda a cada restart. Aplicado pelo CI na branch `develop` (APP_NAME com sufixo `-ephemeral`). URL exibida no log do job. Para testes manuais de serviços existentes, use `deployments/dev/trycloudflare.yaml`.
+- **cloudflared nomeado (prd)** — namespace `prd`; túnel permanente com token. Um Deployment por app, Secret `cloudflare-tunnel-<APP_NAME>` no namespace `prd`. Rotas configuradas no Cloudflare Zero Trust dashboard. Template em `deployments/templates/app/cloudflare-tunnel.yaml`. Aplicado pelo CI apenas em `master`/`main`/tags.
 - **Mempalace** — `StatefulSet` (not Deployment) so the PVC identity is preserved across restarts. Headless service gives stable DNS `mempalace-0.mempalace.mcp`. Backup: `kubectl cp mcp/mempalace-0:/data ./backup`.
-- **cloudflared** — named tunnel token stored in a Secret; routing rules live in the Cloudflare dashboard pointing to `<service>.<namespace>.svc.cluster.local`.
 - **Elasticsearch / Kibana** — heavy (1 GiB limit each); treat as optional on a 4 GB Pi. Requires `vm.max_map_count=262144` on the host.
 - **Gitea** — namespace `apps`; SQLite backend (fully self-contained in 5Gi PVC). SSH git available via NodePort 30022. Container Registry built-in (Gitea Packages, OCI-compatible). `strategy: Recreate` prevents dual-pod PVC conflict.
   - **Backup automático**: `bash scripts/setup_backup_cron.sh` instala cron diário às 05:00 em `~/backups/gitea/`. Teste manual: `bash scripts/backup_gitea.sh`. Retenção configurável via `BACKUP_RETAIN_COUNT` em `config.sh` (padrão: 4 dias).
@@ -142,11 +171,24 @@ kubectl delete -f deployments/dev/trycloudflare.yaml
 
 ## CI/CD Workflow
 
-CI/CD is handled by Gitea Actions (`.gitea/workflows/*.yml` in each app repo), executed by the `act_runner` in namespace `ci`. Syntax is compatible with GitHub Actions.
+CI/CD é feito pelo Gitea Actions (`.gitea/workflows/*.yml` em cada repo), executado pelo `act_runner` no namespace `ci`. Sintaxe compatível com GitHub Actions.
 
-Runner labels: `pi`, `docker`, `homelab`. Use `runs-on: [pi]` in workflow jobs to target this runner.
+Runner label: `homelab`. Use `runs-on: [homelab]` nos jobs.
 
-The `workflows/github/` directory contains legacy GitHub Actions templates kept for reference.
+O template canônico está em `workflows/github/build-and-deploy.yaml`. Copie para `.gitea/workflows/deploy.yml` no repo da aplicação e ajuste `PORT`.
+
+**Padrão de deploy por branch:**
+
+| Branch | Trigger | APP_NAME | NAMESPACE | Túnel |
+|--------|---------|----------|-----------|-------|
+| `master`/`main`/tag | push automático | `<repo>` | `DEPLOY_NAMESPACE` | nomeado em `prd` |
+| `develop` | `workflow_dispatch` manual | `<repo>-ephemeral` | `dev` | trycloudflare (URL no log) |
+
+**Para adicionar um novo app ao padrão:**
+1. Copie `templates/app/cloudflare-tunnel.yaml` → `.k8s/cloudflare-tunnel.yaml` do repo
+2. Copie `templates/app/trycloudflare.yaml` → `.k8s/trycloudflare.yaml` do repo (ajuste `${PORT}` no workflow)
+3. Crie o Secret do túnel nomeado: `kubectl create secret generic cloudflare-tunnel-<app> --from-literal=token="<token>" -n prd`
+4. Configure a rota no Cloudflare Zero Trust dashboard
 
 ---
 
@@ -162,7 +204,8 @@ The `workflows/github/` directory contains legacy GitHub Actions templates kept 
 | Gitea Runner (idle) | 128 MiB | 512 MiB |
 | Postgres | 128 MiB | 512 MiB |
 | Redis | 32 MiB | 128 MiB |
-| **Idle total** | **~944 MiB** | — |
+| writing-editor | 64 MiB | 128 MiB |
+| **Idle total** | **~1008 MiB** | — |
 
 ~2.7 GiB free for CI/CD job peaks and other workloads.
 Elasticsearch + Kibana add up to 2 GiB of limits — deploy only if the Pi has 8 GB RAM.

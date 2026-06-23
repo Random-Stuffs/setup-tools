@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea-runner-apps
+  namespace: ci
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitea-runner-apps
+  template:
+    metadata:
+      labels:
+        app: gitea-runner-apps
+    spec:
+      containers:
+        - name: act-runner
+          image: gitea/act_runner:latest
+          securityContext:
+            privileged: true
+          env:
+            - name: GITEA_INSTANCE_URL
+              value: http://gitea.apps.svc.cluster.local:3000
+            - name: GITEA_RUNNER_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-runner-apps-secret
+                  key: GITEA_RUNNER_REGISTRATION_TOKEN
+            - name: GITEA_RUNNER_NAME
+              value: pi-k3s-runner-apps
+            - name: GITEA_RUNNER_LABELS
+              value: "pi,docker,homelab"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: runner-data
+              mountPath: /data
+            - name: k3s-containerd-sock
+              mountPath: /run/k3s/containerd/containerd.sock
+            - name: k3s-bin
+              mountPath: /usr/local/bin/k3s
+            - name: k3s-kubeconfig
+              mountPath: /etc/rancher/k3s/k3s.yaml
+              readOnly: true
+            - name: k3s-rancher-data
+              mountPath: /var/lib/rancher
+      volumes:
+        - name: runner-data
+          persistentVolumeClaim:
+            claimName: gitea-runner-apps-config
+        - name: k3s-containerd-sock
+          hostPath:
+            path: /run/k3s/containerd/containerd.sock
+        - name: k3s-bin
+          hostPath:
+            path: /usr/local/bin/k3s
+        - name: k3s-kubeconfig
+          hostPath:
+            path: /etc/rancher/k3s/k3s.yaml
+        - name: k3s-rancher-data
+          hostPath:
+            path: /var/lib/rancher
