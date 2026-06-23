@@ -1,6 +1,6 @@
 # Template CI/CD para apps no homelab k3s.
 #
-# Copie para .gitea/workflows/deploy.yml no repo da aplicação.
+# Copie para .github/workflows/deploy.yml no repo da aplicação.
 # Ajuste apenas PORT se necessário (padrão 8080 para Go, 80 para nginx).
 #
 # Pré-requisitos no repo da aplicação:
@@ -11,25 +11,30 @@
 #   - Gitea variable DEPLOY_NAMESPACE (ex: apps, docs)
 #
 # Triggers:
-#   - push master/main + tags v*  → deploy automático com túnel nomeado (prd)
+#   - push master/main + tags v*  → deploy automático com túnel nomeado
+#   - push develop                → deploy ephemeral (<app>-ephemeral) via trycloudflare
 #   - workflow_dispatch            → redeploy manual em qualquer branch
-#     (em develop: ephemeral no dev namespace via trycloudflare)
 #
 # Variáveis resolvidas pelo workflow:
 #   APP_NAME  — <repo-name>                   (master) | <repo-name>-ephemeral (develop)
-#   NAMESPACE — vars.DEPLOY_NAMESPACE         (master) | dev                   (develop)
+#   NAMESPACE — vars.DEPLOY_NAMESPACE
 #   IMAGE     — <repo-name>:<git-sha>
 #   PORT      — porta do serviço (ajuste conforme o app)
 #
-# Secret necessário em prd para o túnel nomeado:
+# Variável opcional CLOUDFLARE_TUNNEL (Settings → Variables → Actions):
+#   ausente/"true" → expõe via Cloudflare (padrão)
+#   "false"        → deploy interno apenas (homelab.local, sem cloudflared)
+#   tags v*        → sempre sobem o tunnel de produção, ignorando CLOUDFLARE_TUNNEL
+#
+# Secret necessário para o túnel nomeado:
 #   kubectl create secret generic cloudflare-tunnel-<APP_NAME> \
-#     --from-literal=token="<cloudflare-tunnel-token>" -n prd
+#     --from-literal=token="<cloudflare-tunnel-token>" -n <namespace>
 
 name: Build and Deploy
 
 on:
   push:
-    branches: ["master", "main"]
+    branches: ["master", "main", "develop"]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -113,7 +118,7 @@ jobs:
           rm -f "$TMPKUBE"
 
       - name: Deploy production tunnel
-        if: github.ref_name == 'master' || github.ref_name == 'main' || startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || ((github.ref_name == 'master' || github.ref_name == 'main') && vars.CLOUDFLARE_TUNNEL != 'false')
         run: |
           TMPKUBE=$(mktemp)
           sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc.cluster.local|g' \
@@ -125,7 +130,7 @@ jobs:
           rm -f "$TMPKUBE"
 
       - name: Deploy trycloudflare
-        if: github.ref_name == 'develop'
+        if: github.ref_name == 'develop' && vars.CLOUDFLARE_TUNNEL != 'false'
         run: |
           TMPKUBE=$(mktemp)
           sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc.cluster.local|g' \
@@ -148,16 +153,19 @@ jobs:
           rm -f "$TMPKUBE"
 
       - name: Show tunnel URL
-        if: github.ref_name == 'develop'
+        if: github.ref_name == 'develop' && vars.CLOUDFLARE_TUNNEL != 'false'
         run: |
           TMPKUBE=$(mktemp)
           sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc.cluster.local|g' \
             /etc/rancher/k3s/k3s.yaml > "$TMPKUBE"
+          KUBECONFIG="$TMPKUBE" k3s kubectl rollout status deployment/"cloudflared-dev-${APP_NAME}" \
+            --namespace="${NAMESPACE}" \
+            --timeout=120s
           echo "Aguardando tunnel iniciar..."
           URL=""
-          for i in $(seq 1 20); do
-            URL=$(KUBECONFIG="$TMPKUBE" k3s kubectl logs -n dev \
-              "deployment/cloudflared-dev-${APP_NAME}" 2>/dev/null \
+          for i in $(seq 1 30); do
+            URL=$(KUBECONFIG="$TMPKUBE" k3s kubectl logs -n "${NAMESPACE}" \
+              "deployment/cloudflared-dev-${APP_NAME}" --since=120s 2>/dev/null \
               | grep -o 'https://[^ ]*trycloudflare\.com' | tail -1)
             [ -n "$URL" ] && break
             sleep 3
