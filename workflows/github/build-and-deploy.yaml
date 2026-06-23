@@ -45,7 +45,7 @@ jobs:
     env:
       IMAGE: "${{ github.event.repository.name }}:${{ github.sha }}"
       APP_NAME: ${{ github.ref_name == 'develop' && format('{0}-ephemeral', github.event.repository.name) || github.event.repository.name }}
-      NAMESPACE: ${{ github.ref_name == 'develop' && 'dev' || vars.DEPLOY_NAMESPACE }}
+      NAMESPACE: ${{ vars.DEPLOY_NAMESPACE }}
       PORT: "8080"   # ajuste conforme o app (80 para nginx, 8080 para Go, 3000 para Node)
       NERDCTL_VERSION: "2.0.4"
 
