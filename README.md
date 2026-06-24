@@ -139,7 +139,7 @@ Each application repo needs two things:
 
 **1. Workflow** — copy `workflows/github/build-and-deploy.yaml` to `.github/workflows/deploy.yaml` in the app repo. No edits needed — it reads everything from git context and GitHub variables.
 
-The workflow has two jobs: **`build`** runs automatically on every push and validates the image compiles. **`deploy`** only runs when triggered manually via Actions → **Run workflow**. This gives you explicit control over when something reaches the cluster.
+The workflow has two jobs: **`build`** runs automatically on every push/tag and validates the image compiles. **`deploy`** runs automatically on push to `master`, `main`, or `develop` — re-running the workflow manually serves as a redeploy without a new push.
 
 **2. Manifests** — create a `.k8s/` directory in the app repo with four files (use `deployments/templates/docusaurus/` as reference):
 
@@ -166,8 +166,7 @@ CLOUDFLARE_TUNNEL = false  # omit or set "true" to expose via Cloudflare (defaul
 
 On `develop`, the tunnel is a temporary trycloudflare URL. On `master`/`main`, it uses a named Cloudflare tunnel (requires the token secret — see Step 4).
 
-On every push, the `build` job runs automatically and validates the image. To deploy, go to **Actions → Run workflow** — the `deploy` job will apply the `.k8s/` manifests to the cluster using the image built at that commit SHA.
-3. Wait for rollout to complete (`kubectl rollout status --timeout=120s`).
+On every push to `master`/`main`/`develop`, both jobs run: `build` validates the image and `deploy` applies the `.k8s/` manifests and waits for rollout (`kubectl rollout status --timeout=120s`). Tags trigger only `build`. To redeploy without a new push, re-run the workflow manually.
 
 `APP_NAME` is derived from `github.event.repository.name` — no manual config needed.
 

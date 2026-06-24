@@ -179,16 +179,15 @@ O template canônico está em `workflows/github/build-and-deploy.yaml`. Copie pa
 
 **Dois jobs no template:**
 - `build` — roda automaticamente em todo push/tag. Valida que a imagem compila. Não toca no cluster.
-- `deploy` — só roda via `workflow_dispatch` (manual). Depende do `build` passar. Aplica os manifests `.k8s/` e aguarda o rollout.
+- `deploy` — roda automaticamente em push para `master`/`main`/`develop`. Depende do `build` passar. Aplica os manifests `.k8s/` e aguarda o rollout. Re-run manual serve como redeploy sem novo push.
 
-Para deployar: após o build verde, vá em **Actions → Run workflow**.
-
-**Padrão de deploy por branch (quando `deploy` é acionado manualmente):**
+**Padrão de deploy por branch:**
 
 | Branch | APP_NAME | NAMESPACE | Túnel |
 |--------|----------|-----------|-------|
-| `master`/`main`/tag | `<repo>` | `DEPLOY_NAMESPACE` | nomeado em `prd` |
+| `master`/`main` | `<repo>` | `DEPLOY_NAMESPACE` | nomeado em `prd` |
 | `develop` | `<repo>-ephemeral` | `dev` | trycloudflare (URL no log) |
+| tag `v*` | — (só build) | — | — |
 
 **Para adicionar um novo app ao padrão:**
 1. Copie `templates/app/cloudflare-tunnel.yaml` → `.k8s/cloudflare-tunnel.yaml` do repo
