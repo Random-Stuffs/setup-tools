@@ -1,0 +1,105 @@
+# Template genérico para apps no homelab k3s (sem develop branch, sem tunnels).
+#
+# Copie para .gitea/workflows/deploy.yml.
+# Ideal para serviços internos sem exposição pública (ex: config servers, infra tools).
+# Ajuste PORT e NAMESPACE conforme o app.
+#
+# Pré-requisitos:
+#   - Dockerfile na raiz
+#   - .k8s/ com deployment.yaml, service.yaml, ingress.yaml (opcional)
+#   - Variável DEPLOY_NAMESPACE (ou substitua por namespace fixo abaixo)
+
+name: Build and Deploy
+
+on:
+  push:
+    branches: ["master", "main"]
+
+env:
+  IMAGE: "${{ github.event.repository.name }}:${{ github.sha }}"
+  APP_NAME: ${{ github.event.repository.name }}
+  NAMESPACE: ${{ vars.DEPLOY_NAMESPACE }}
+  PORT: "8080"
+  NERDCTL_VERSION: "2.0.4"
+
+jobs:
+  build-and-deploy:
+    runs-on: [homelab]
+
+    steps:
+      - name: Checkout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SERVER=$(echo "${{ github.server_url }}" | sed 's|://|://x-token-auth:'"${GITHUB_TOKEN}"'@|')
+          git clone --depth 1 --branch "${{ github.ref_name }}" \
+            "${SERVER}/${{ github.repository }}.git" .
+
+      - name: Setup nerdctl
+        run: |
+          if ! command -v nerdctl &>/dev/null || ! command -v buildctl &>/dev/null || ! command -v runc &>/dev/null; then
+            ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+            wget -qO /tmp/nerdctl.tar.gz \
+              "https://github.com/containerd/nerdctl/releases/download/v${NERDCTL_VERSION}/nerdctl-full-${NERDCTL_VERSION}-linux-${ARCH}.tar.gz"
+            tar -C /usr/local -xzf /tmp/nerdctl.tar.gz bin/nerdctl bin/buildkitd bin/buildctl bin/runc
+            rm /tmp/nerdctl.tar.gz
+          fi
+
+      - name: Build image
+        run: |
+          pkill -x buildkitd 2>/dev/null || true
+          rm -f /run/buildkit/buildkitd.sock
+          mkdir -p /run/buildkit
+          buildkitd \
+            --addr unix:///run/buildkit/buildkitd.sock \
+            --oci-worker=true \
+            --containerd-worker=false \
+            --root /data/buildkit > /tmp/buildkitd.log 2>&1 &
+          for i in $(seq 1 30); do
+            buildctl --addr unix:///run/buildkit/buildkitd.sock debug workers &>/dev/null && break
+            sleep 1
+          done
+          buildctl --addr unix:///run/buildkit/buildkitd.sock debug workers &>/dev/null \
+            || { echo "buildkitd falhou ao iniciar:"; cat /tmp/buildkitd.log; exit 1; }
+          BUILDKIT_HOST=unix:///run/buildkit/buildkitd.sock \
+          nerdctl \
+            --address /run/k3s/containerd/containerd.sock \
+            --namespace k8s.io \
+            build \
+            --cache-from type=local,src=/data/buildcache \
+            --cache-to   type=local,dest=/data/buildcache,mode=max \
+            -t "${IMAGE}" . 2>&1 | tee /tmp/build.log | tail -30 \
+          || { echo "=== Build falhou. Log completo:"; cat /tmp/build.log; exit 1; }
+
+      - name: Apply k8s manifests
+        run: |
+          TMPKUBE=$(mktemp)
+          sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc.cluster.local|g' \
+            /etc/rancher/k3s/k3s.yaml > "$TMPKUBE"
+          for f in .k8s/*.yaml; do
+            sed \
+              -e "s|\${APP_NAME}|${APP_NAME}|g" \
+              -e "s|\${IMAGE}|${IMAGE}|g" \
+              -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
+              "$f" | KUBECONFIG="$TMPKUBE" k3s kubectl apply -f -
+          done
+          rm -f "$TMPKUBE"
+
+      - name: Wait for rollout
+        run: |
+          TMPKUBE=$(mktemp)
+          sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc.cluster.local|g' \
+            /etc/rancher/k3s/k3s.yaml > "$TMPKUBE"
+          KUBECONFIG="$TMPKUBE" k3s kubectl rollout status deployment/"${APP_NAME}" \
+            --namespace="${NAMESPACE}" \
+            --timeout=120s
+          rm -f "$TMPKUBE"
+
+      - name: Prune dangling images
+        if: always()
+        run: |
+          BUILDKIT_HOST=unix:///run/buildkit/buildkitd.sock \
+          nerdctl \
+            --address /run/k3s/containerd/containerd.sock \
+            --namespace k8s.io \
+            image prune -f

@@ -175,11 +175,21 @@ CI/CD é feito pelo Gitea Actions (`.gitea/workflows/*.yml` em cada repo), execu
 
 Runner label: `homelab`. Use `runs-on: [homelab]` nos jobs.
 
-O template canônico está em `workflows/github/build-and-deploy.yaml`. Copie para `.gitea/workflows/deploy.yml` no repo da aplicação e ajuste `PORT`.
+Templates em `workflows/github/<tipo>/build-and-deploy.yaml` — copie para `.gitea/workflows/deploy.yml` no repo da aplicação:
 
-**Dois jobs no template:**
-- `build` — roda automaticamente em todo push/tag. Valida que a imagem compila. Não toca no cluster.
-- `deploy` — roda automaticamente em push para `master`/`main`/`develop`. Depende do `build` passar. Aplica os manifests `.k8s/` e aguarda o rollout. Re-run manual serve como redeploy sem novo push.
+| Template | Stack | PORT | Jobs | develop | Tunnels |
+|----------|-------|------|------|---------|---------|
+| `go/` | Go | 8080 | build + deploy | sim | sim |
+| `python/` | Python (FastAPI/Flask) | 8000 | build + deploy | sim | sim |
+| `hugo/` | Hugo + nginx | 80 | build + deploy | sim | sim |
+| `docusaurus/` | Docusaurus | — | único | não | não |
+| `generic/` | qualquer | 8080 | único | não | não |
+
+**Docusaurus** gera `website/.recently-updated-manifest.json` automaticamente (controle via `DOCS_DIR` e `RECENTLY_UPDATED_DAYS`).
+
+**Jobs nos templates com develop:**
+- `build` — roda em todo push/tag. Valida que a imagem compila. Não toca no cluster.
+- `deploy` — roda em push para `master`/`main`/`develop`. Depende do `build` passar. Re-run serve como redeploy sem novo push.
 
 **Padrão de deploy por branch:**
 

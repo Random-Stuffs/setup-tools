@@ -1,30 +1,30 @@
-# DEPRECIADO — use os templates específicos por tipo de projeto:
+# Template para sites Docusaurus no homelab k3s.
 #
-#   go/build-and-deploy.yaml         — Go (PORT 8080, develop, cloudflare tunnels)
-#   python/build-and-deploy.yaml     — Python/FastAPI/Flask (PORT 8000, develop, tunnels)
-#   hugo/build-and-deploy.yaml       — Hugo + nginx (PORT 80, develop, tunnels)
-#   docusaurus/build-and-deploy.yaml — Docusaurus (recently-updated manifest, master/main)
-#   generic/build-and-deploy.yaml    — qualquer stack sem develop e sem tunnels
+# Copie para .gitea/workflows/deploy.yml.
+# Assume site em website/ — ajuste DOCS_DIR se o layout for diferente.
+#
+# Pré-requisitos:
+#   - Dockerfile na raiz
+#   - .k8s/ com deployment.yaml, service.yaml, ingress.yaml
+#   - Variável DEPLOY_NAMESPACE (ex: docs)
+#
+# Gera website/.recently-updated-manifest.json com docs modificados nos últimos
+# RECENTLY_UPDATED_DAYS dias — usado para destacar conteúdo recente no site.
 
 name: Build and Deploy
 
 on:
   push:
-    branches: ["master", "main", "develop"]
+    branches: ["master", "main"]
     tags: ["v*"]
-  workflow_dispatch:
-    inputs:
-      reason:
-        description: "Motivo do redeploy (ex: novo conteúdo, hotfix)"
-        required: false
-        default: "redeploy manual"
 
 env:
   IMAGE: "${{ github.event.repository.name }}:${{ github.sha }}"
-  APP_NAME: ${{ github.ref_name == 'develop' && format('{0}-ephemeral', github.event.repository.name) || github.event.repository.name }}
+  APP_NAME: ${{ github.event.repository.name }}
   NAMESPACE: ${{ vars.DEPLOY_NAMESPACE }}
-  PORT: "8080"   # ajuste conforme o app (80 para nginx, 8080 para Go, 3000 para Node)
   NERDCTL_VERSION: "2.0.4"
+  DOCS_DIR: "website/docs"
+  RECENTLY_UPDATED_DAYS: "7"
 
 jobs:
   build:
@@ -38,6 +38,26 @@ jobs:
           SERVER=$(echo "${{ github.server_url }}" | sed 's|://|://x-token-auth:'"${GITHUB_TOKEN}"'@|')
           git clone --depth 1 --branch "${{ github.ref_name }}" \
             "${SERVER}/${{ github.repository }}.git" .
+
+      - name: Generate recently-updated manifest
+        run: |
+          FETCH_DAYS=$((RECENTLY_UPDATED_DAYS + 1))
+          git fetch --shallow-since="$(date -d "${FETCH_DAYS} days ago" '+%Y-%m-%dT%H:%M:%S')" 2>/dev/null || \
+            git fetch --unshallow 2>/dev/null || true
+          CUTOFF=$(( $(date +%s) - RECENTLY_UPDATED_DAYS * 86400 ))
+          DOCS=""
+          while IFS= read -r file; do
+            TS=$(git log -1 --pretty=format:"%ct" -- "$file" 2>/dev/null)
+            [ -n "$TS" ] && [ "$TS" -gt "$CUTOFF" ] || continue
+            ID="${file#${DOCS_DIR}/}"
+            ID="${ID%.md}"
+            ID="${ID%.mdx}"
+            DOCS="${DOCS:+${DOCS},}\"${ID}\""
+          done < <(find "${DOCS_DIR}" -name "*.md" -o -name "*.mdx" 2>/dev/null)
+          MANIFEST_DIR="$(dirname "${DOCS_DIR}")"
+          printf '{"docs":[%s],"thresholdDays":%s}' "$DOCS" "$RECENTLY_UPDATED_DAYS" \
+            > "${MANIFEST_DIR}/.recently-updated-manifest.json"
+          echo "[recently-updated] Manifest gerado com $(printf '%s' "$DOCS" | tr -cd ',' | wc -c) docs"
 
       - name: Setup nerdctl
         run: |
@@ -87,7 +107,7 @@ jobs:
   deploy:
     needs: build
     runs-on: [homelab]
-    if: github.ref_name == 'master' || github.ref_name == 'main' || github.ref_name == 'develop'
+    if: github.ref_name == 'master' || github.ref_name == 'main'
 
     steps:
       - name: Checkout
@@ -104,41 +124,12 @@ jobs:
           sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc.cluster.local|g' \
             /etc/rancher/k3s/k3s.yaml > "$TMPKUBE"
           for f in .k8s/*.yaml; do
-            name=$(basename "$f")
-            case "$name" in
-              cloudflare-tunnel.yaml|trycloudflare.yaml) continue ;;
-            esac
             sed \
               -e "s|\${APP_NAME}|${APP_NAME}|g" \
               -e "s|\${IMAGE}|${IMAGE}|g" \
               -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
               "$f" | KUBECONFIG="$TMPKUBE" k3s kubectl apply -f -
           done
-          rm -f "$TMPKUBE"
-
-      - name: Deploy production tunnel
-        if: startsWith(github.ref, 'refs/tags/') || ((github.ref_name == 'master' || github.ref_name == 'main') && vars.CLOUDFLARE_TUNNEL != 'false')
-        run: |
-          TMPKUBE=$(mktemp)
-          sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc.cluster.local|g' \
-            /etc/rancher/k3s/k3s.yaml > "$TMPKUBE"
-          sed \
-            -e "s|\${APP_NAME}|${APP_NAME}|g" \
-            -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
-            .k8s/cloudflare-tunnel.yaml | KUBECONFIG="$TMPKUBE" k3s kubectl apply -f -
-          rm -f "$TMPKUBE"
-
-      - name: Deploy trycloudflare
-        if: github.ref_name == 'develop' && vars.CLOUDFLARE_TUNNEL != 'false'
-        run: |
-          TMPKUBE=$(mktemp)
-          sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc.cluster.local|g' \
-            /etc/rancher/k3s/k3s.yaml > "$TMPKUBE"
-          sed \
-            -e "s|\${APP_NAME}|${APP_NAME}|g" \
-            -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
-            -e "s|\${PORT}|${PORT}|g" \
-            .k8s/trycloudflare.yaml | KUBECONFIG="$TMPKUBE" k3s kubectl apply -f -
           rm -f "$TMPKUBE"
 
       - name: Wait for rollout
@@ -150,25 +141,3 @@ jobs:
             --namespace="${NAMESPACE}" \
             --timeout=120s
           rm -f "$TMPKUBE"
-
-      - name: Show tunnel URL
-        if: github.ref_name == 'develop' && vars.CLOUDFLARE_TUNNEL != 'false'
-        run: |
-          TMPKUBE=$(mktemp)
-          sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc.cluster.local|g' \
-            /etc/rancher/k3s/k3s.yaml > "$TMPKUBE"
-          KUBECONFIG="$TMPKUBE" k3s kubectl rollout status deployment/"cloudflared-dev-${APP_NAME}" \
-            --namespace="${NAMESPACE}" \
-            --timeout=120s
-          echo "Aguardando tunnel iniciar..."
-          URL=""
-          for i in $(seq 1 30); do
-            URL=$(KUBECONFIG="$TMPKUBE" k3s kubectl logs -n "${NAMESPACE}" \
-              "deployment/cloudflared-dev-${APP_NAME}" --since=120s 2>/dev/null \
-              | grep -o 'https://[^ ]*trycloudflare\.com' | tail -1)
-            [ -n "$URL" ] && break
-            sleep 3
-          done
-          rm -f "$TMPKUBE"
-          echo "=== URL do tunnel ==="
-          echo "${URL:-URL ainda não disponível — verifique os logs do pod cloudflared-dev-${APP_NAME}}"
