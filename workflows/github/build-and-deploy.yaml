@@ -10,10 +10,9 @@
 #   - .k8s/trycloudflare.yaml      (de templates/app/trycloudflare.yaml)
 #   - Gitea variable DEPLOY_NAMESPACE (ex: apps, docs)
 #
-# Triggers:
-#   - push master/main + tags v*  → deploy automático com túnel nomeado
-#   - push develop                → deploy ephemeral (<app>-ephemeral) via trycloudflare
-#   - workflow_dispatch            → redeploy manual em qualquer branch
+# Dois jobs:
+#   build  — roda automaticamente em todo push/tag. Valida que a imagem compila.
+#   deploy — roda em push para master/main/develop. Re-run serve como redeploy manual.
 #
 # Variáveis resolvidas pelo workflow:
 #   APP_NAME  — <repo-name>                   (master) | <repo-name>-ephemeral (develop)
@@ -24,7 +23,6 @@
 # Variável opcional CLOUDFLARE_TUNNEL (Settings → Variables → Actions):
 #   ausente/"true" → expõe via Cloudflare (padrão)
 #   "false"        → deploy interno apenas (homelab.local, sem cloudflared)
-#   tags v*        → sempre sobem o tunnel de produção, ignorando CLOUDFLARE_TUNNEL
 #
 # Secret necessário para o túnel nomeado:
 #   kubectl create secret generic cloudflare-tunnel-<APP_NAME> \
@@ -43,16 +41,16 @@ on:
         required: false
         default: "redeploy manual"
 
-jobs:
-  build-and-deploy:
-    runs-on: [homelab]
+env:
+  IMAGE: "${{ github.event.repository.name }}:${{ github.sha }}"
+  APP_NAME: ${{ github.ref_name == 'develop' && format('{0}-ephemeral', github.event.repository.name) || github.event.repository.name }}
+  NAMESPACE: ${{ vars.DEPLOY_NAMESPACE }}
+  PORT: "8080"   # ajuste conforme o app (80 para nginx, 8080 para Go, 3000 para Node)
+  NERDCTL_VERSION: "2.0.4"
 
-    env:
-      IMAGE: "${{ github.event.repository.name }}:${{ github.sha }}"
-      APP_NAME: ${{ github.ref_name == 'develop' && format('{0}-ephemeral', github.event.repository.name) || github.event.repository.name }}
-      NAMESPACE: ${{ vars.DEPLOY_NAMESPACE }}
-      PORT: "8080"   # ajuste conforme o app (80 para nginx, 8080 para Go, 3000 para Node)
-      NERDCTL_VERSION: "2.0.4"
+jobs:
+  build:
+    runs-on: [homelab]
 
     steps:
       - name: Checkout
@@ -98,6 +96,29 @@ jobs:
             --cache-to   type=local,dest=/data/buildcache,mode=max \
             -t "${IMAGE}" . 2>&1 | tee /tmp/build.log | tail -30 \
           || { echo "=== Build falhou. Log completo:"; cat /tmp/build.log; exit 1; }
+
+      - name: Prune dangling images
+        if: always()
+        run: |
+          BUILDKIT_HOST=unix:///run/buildkit/buildkitd.sock \
+          nerdctl \
+            --address /run/k3s/containerd/containerd.sock \
+            --namespace k8s.io \
+            image prune -f
+
+  deploy:
+    needs: build
+    runs-on: [homelab]
+    if: github.ref_name == 'master' || github.ref_name == 'main' || github.ref_name == 'develop'
+
+    steps:
+      - name: Checkout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SERVER=$(echo "${{ github.server_url }}" | sed 's|://|://x-token-auth:'"${GITHUB_TOKEN}"'@|')
+          git clone --depth 1 --branch "${{ github.ref_name }}" \
+            "${SERVER}/${{ github.repository }}.git" .
 
       - name: Apply k8s manifests
         run: |
@@ -173,12 +194,3 @@ jobs:
           rm -f "$TMPKUBE"
           echo "=== URL do tunnel ==="
           echo "${URL:-URL ainda não disponível — verifique os logs do pod cloudflared-dev-${APP_NAME}}"
-
-      - name: Prune dangling images
-        if: always()
-        run: |
-          BUILDKIT_HOST=unix:///run/buildkit/buildkitd.sock \
-          nerdctl \
-            --address /run/k3s/containerd/containerd.sock \
-            --namespace k8s.io \
-            image prune -f
