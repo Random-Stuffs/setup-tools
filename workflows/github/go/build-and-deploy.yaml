@@ -1,10 +1,16 @@
-# DEPRECIADO — use os templates específicos por tipo de projeto:
+# Template para apps Go no homelab k3s.
 #
-#   go/build-and-deploy.yaml         — Go (PORT 8080, develop, cloudflare tunnels)
-#   python/build-and-deploy.yaml     — Python/FastAPI/Flask (PORT 8000, develop, tunnels)
-#   hugo/build-and-deploy.yaml       — Hugo + nginx (PORT 80, develop, tunnels)
-#   docusaurus/build-and-deploy.yaml — Docusaurus (recently-updated manifest, master/main)
-#   generic/build-and-deploy.yaml    — qualquer stack sem develop e sem tunnels
+# Copie para .gitea/workflows/deploy.yml.
+# Ajuste PORT se necessário (padrão 8080).
+#
+# Pré-requisitos:
+#   - Dockerfile na raiz
+#   - .k8s/ com deployment.yaml, service.yaml, ingress.yaml
+#   - .k8s/cloudflare-tunnel.yaml  (de templates/app/cloudflare-tunnel.yaml)
+#   - .k8s/trycloudflare.yaml      (de templates/app/trycloudflare.yaml)
+#   - Variável DEPLOY_NAMESPACE    (ex: apps)
+#   - Variável CLOUDFLARE_TUNNEL   (opcional; "false" = sem Cloudflare)
+#   - Secret cloudflare-tunnel-<APP_NAME> no namespace prd
 
 name: Build and Deploy
 
@@ -12,18 +18,12 @@ on:
   push:
     branches: ["master", "main", "develop"]
     tags: ["v*"]
-  workflow_dispatch:
-    inputs:
-      reason:
-        description: "Motivo do redeploy (ex: novo conteúdo, hotfix)"
-        required: false
-        default: "redeploy manual"
 
 env:
   IMAGE: "${{ github.event.repository.name }}:${{ github.sha }}"
   APP_NAME: ${{ github.ref_name == 'develop' && format('{0}-ephemeral', github.event.repository.name) || github.event.repository.name }}
   NAMESPACE: ${{ vars.DEPLOY_NAMESPACE }}
-  PORT: "8080"   # ajuste conforme o app (80 para nginx, 8080 para Go, 3000 para Node)
+  PORT: "8080"
   NERDCTL_VERSION: "2.0.4"
 
 jobs:
@@ -117,7 +117,7 @@ jobs:
           rm -f "$TMPKUBE"
 
       - name: Deploy production tunnel
-        if: startsWith(github.ref, 'refs/tags/') || ((github.ref_name == 'master' || github.ref_name == 'main') && vars.CLOUDFLARE_TUNNEL != 'false')
+        if: (github.ref_name == 'master' || github.ref_name == 'main') && vars.CLOUDFLARE_TUNNEL != 'false'
         run: |
           TMPKUBE=$(mktemp)
           sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc.cluster.local|g' \
