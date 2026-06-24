@@ -177,12 +177,18 @@ Runner label: `homelab`. Use `runs-on: [homelab]` nos jobs.
 
 O template canônico está em `workflows/github/build-and-deploy.yaml`. Copie para `.gitea/workflows/deploy.yml` no repo da aplicação e ajuste `PORT`.
 
-**Padrão de deploy por branch:**
+**Dois jobs no template:**
+- `build` — roda automaticamente em todo push/tag. Valida que a imagem compila. Não toca no cluster.
+- `deploy` — só roda via `workflow_dispatch` (manual). Depende do `build` passar. Aplica os manifests `.k8s/` e aguarda o rollout.
 
-| Branch | Trigger | APP_NAME | NAMESPACE | Túnel |
-|--------|---------|----------|-----------|-------|
-| `master`/`main`/tag | push automático | `<repo>` | `DEPLOY_NAMESPACE` | nomeado em `prd` |
-| `develop` | `workflow_dispatch` manual | `<repo>-ephemeral` | `dev` | trycloudflare (URL no log) |
+Para deployar: após o build verde, vá em **Actions → Run workflow**.
+
+**Padrão de deploy por branch (quando `deploy` é acionado manualmente):**
+
+| Branch | APP_NAME | NAMESPACE | Túnel |
+|--------|----------|-----------|-------|
+| `master`/`main`/tag | `<repo>` | `DEPLOY_NAMESPACE` | nomeado em `prd` |
+| `develop` | `<repo>-ephemeral` | `dev` | trycloudflare (URL no log) |
 
 **Para adicionar um novo app ao padrão:**
 1. Copie `templates/app/cloudflare-tunnel.yaml` → `.k8s/cloudflare-tunnel.yaml` do repo
