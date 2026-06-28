@@ -57,9 +57,16 @@ start_ffmpeg() {
 
 stop_ffmpeg() {
   [[ -z "$FFMPEG_PID" ]] && return
-  # retoma antes de terminar se estiver pausado (SIGINT em processo STOP'd é ignorado)
+  # retoma antes de terminar: SIGINT em processo STOP'd fica pendente e não para o ffmpeg
   [[ "$STATE" == "paused" ]] && kill -CONT "$FFMPEG_PID" 2>/dev/null || true
   kill -INT "$FFMPEG_PID" 2>/dev/null || true
+  # aguarda até 5s; força kill se travar
+  local i
+  for i in $(seq 1 50); do
+    kill -0 "$FFMPEG_PID" 2>/dev/null || break
+    sleep 0.1
+  done
+  kill -9 "$FFMPEG_PID" 2>/dev/null || true
   wait "$FFMPEG_PID" 2>/dev/null || true
   FFMPEG_PID=""
 }
@@ -73,17 +80,30 @@ flush_to_mp4() {
 }
 
 # --- cleanup ao sair ---
+EXITING=false
+
 on_exit() {
+  # guarda contra dupla execução (INT dispara on_exit → exit → EXIT dispara on_exit de novo)
+  $EXITING && return
+  EXITING=true
+
+  # ignora Ctrl+C durante o cleanup para não interromper a conversão WAV→MP4
+  trap '' INT TERM
+
   if [[ "$STATE" == "recording" || "$STATE" == "paused" ]]; then
     log "Finalizando..."
     stop_ffmpeg
     [[ -f "$TMPWAV" ]] && flush_to_mp4
   fi
-  # restaura terminal
+
   [[ -n "$STTY_BACKUP" ]] && stty "$STTY_BACKUP" </dev/tty 2>/dev/null || true
   printf "\n"
 }
-trap on_exit EXIT INT TERM
+
+# INT/TERM: faz cleanup E chama exit explicitamente (sem o exit, o while true continua e trava)
+trap 'on_exit; exit' INT TERM
+# EXIT: cobre saídas normais (ex: . ou , já chamaram exit implícito)
+trap 'on_exit' EXIT
 
 # --- inicialização ---
 detect_audio
