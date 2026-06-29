@@ -7,6 +7,7 @@ Infrastructure-as-code for a Raspberry Pi 4B homelab running **k3s** with GitHub
 | Directory | Purpose |
 |---|---|
 | `scripts/` | Bootstrap scripts — install the OS baseline and k3s cluster |
+| `scripts/audio/` | Standalone audio utilities (recording, etc.) |
 | `deployments/` | Kubernetes manifests organised by namespace |
 | `workflows/github/` | GitHub Actions workflow templates |
 
@@ -169,6 +170,36 @@ On `develop`, the tunnel is a temporary trycloudflare URL. On `master`/`main`, i
 On every push to `master`/`main`/`develop`, both jobs run: `build` validates the image and `deploy` applies the `.k8s/` manifests and waits for rollout (`kubectl rollout status --timeout=120s`). Tags trigger only `build`. To redeploy without a new push, re-run the workflow manually.
 
 `APP_NAME` is derived from `github.event.repository.name` — no manual config needed.
+
+---
+
+## Audio tools
+
+### `record-audio.sh` — gravador interativo
+
+Grava áudio do microfone diretamente no terminal, sem interface gráfica. Funciona em WSL2 (com WSLg ou PulseAudio) e Linux nativo.
+
+**Dependências:** `ffmpeg`, `pulseaudio` (WSL2) ou ALSA.
+
+```bash
+# Gravar no diretório atual:
+bash scripts/audio/record-audio.sh
+
+# Gravar em diretório específico:
+OUTPUT_DIR=~/gravacoes bash scripts/audio/record-audio.sh
+```
+
+**Teclas:**
+
+| Tecla | Ação |
+|---|---|
+| `P` | Iniciar gravação / Pausar / Retomar |
+| `R` | Salvar checkpoint agora (continua gravando) |
+| `.` | Salvar arquivo final e resetar |
+| `,` | Descartar gravação atual e resetar |
+| `Ctrl+C` | Salvar automaticamente e sair |
+
+Arquivos salvos como `gravacao_YYYYMMDD_HHMMSS.mp4` (AAC, 128 kbps, mono 44 kHz). Checkpoints seguem o padrão `checkpoint_YYYYMMDD_HHMMSS_N.mp4`. A conversão WAV→MP4 acontece apenas no flush final; a gravação intermediária fica em `/tmp`.
 
 ---
 
