@@ -37,4 +37,12 @@ BACKUP_RETAIN_COUNT=15   # number of daily backups to keep
 # GPG recipient (email or fingerprint) used to encrypt backups.
 # Run scripts/setup_backup_encryption.sh to generate the key pair.
 # Leave empty to disable encryption (backup saved as .PLAIN.tar.gz).
-GPG_RECIPIENT=""
+GPG_RECIPIENT="gitea-backup@homelab.local"
+
+# --- Backup pull (run from local host) ---
+# SSH address of the Raspberry Pi.
+BACKUP_PI_HOST="willy@100.98.40.92"
+# Local folder where pulled backups are stored.
+LOCAL_BACKUP_DIR="$HOME/gitea-backups"
+# Number of local backup copies to keep.
+LOCAL_RETAIN_COUNT=5
