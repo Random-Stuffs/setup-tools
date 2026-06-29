@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-Infrastructure-as-code and setup automation for a Raspberry Pi 4B homelab running k3s. Three concerns:
+Infrastructure-as-code and setup automation for a Raspberry Pi 4B homelab running k3s. Four concerns:
 
 1. **Bootstrap scripts** (`scripts/`) — shell scripts to install the base system and k3s cluster on the Pi.
 2. **Kubernetes manifests** (`deployments/`) — k3s workload definitions organised by namespace/concern.
 3. **GitHub Actions workflows** (`workflows/github/`) — CI/CD templates for application repos.
+4. **Audio utilities** (`scripts/audio/`) — standalone shell tools for audio capture and processing, designed for WSL2/Linux.
 
 ---
 
@@ -31,8 +32,24 @@ scripts/
 │   └── 08_k9s.sh               # k9s TUI binary (ARM64, auto-detects arch)
 ├── homelab_essential_setup.sh  # Orchestrator: sources components 01–04
 ├── homelab_cluster_setup.sh    # Orchestrator: sources components 05–08
-└── deploy_gitea.sh             # Deploys Gitea end-to-end: secret → manifests → admin user
+├── deploy_gitea.sh             # Deploys Gitea end-to-end: secret → manifests → admin user
+└── audio/
+    └── record-audio.sh         # Interactive audio recorder (WSL2/Linux); P=rec/pause, R=checkpoint, .=save, ,=discard
 ```
+
+### `audio/record-audio.sh` — gravador interativo
+
+Grava áudio do microfone no terminal sem interface gráfica. Detecta automaticamente WSLg, PulseAudio ou ALSA.
+
+```bash
+# Gravar no diretório atual:
+bash scripts/audio/record-audio.sh
+
+# Gravar em diretório específico:
+OUTPUT_DIR=~/gravacoes bash scripts/audio/record-audio.sh
+```
+
+Teclas: `P` (gravar/pausar/retomar), `R` (checkpoint em background), `.` (salvar+resetar), `,` (descartar), `Ctrl+C` (salvar e sair). Grava em WAV temporário e converte para MP4/AAC apenas no flush.
 
 ### `02_python.sh` — parameterizable Python install
 
