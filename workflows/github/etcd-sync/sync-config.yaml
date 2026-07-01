@@ -1,0 +1,102 @@
+# Template para sincronizar configs de negócio (YAML) com o etcd do cluster.
+#
+# Copie para .gitea/workflows/sync-config.yml no repo que guarda as configs
+# (ex: ci-templates). Não faz build de imagem nem deploy de manifesto —
+# só valida e escreve no etcd.
+#
+# Convenção de arquivos (dentro de apps/{app-name}/):
+#   config.yml            -> ambiente "production"
+#   config-{profile}.yml  -> ambiente "{profile}" (ex: config-staging.yml -> "staging")
+#
+# Chave no etcd: /configs/apps/{app-name}/{environment}
+# Valor: conteúdo do YAML convertido para JSON.
+#
+# Pré-requisito no cluster: etcd rodando em data/etcd (ver deployments/data/etcd.yaml).
+
+name: Sync Config to etcd
+
+on:
+  push:
+    branches: ["master", "main"]
+    paths:
+      - "apps/**/config*.yml"
+      - "apps/**/config*.yaml"
+
+env:
+  ETCD_ENDPOINTS: "http://etcd.data.svc.cluster.local:2379"
+  YQ_VERSION: "v4.44.3"
+  ETCD_VERSION: "v3.5.17"
+
+jobs:
+  sync-config:
+    runs-on: [homelab]
+
+    steps:
+      - name: Checkout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SERVER=$(echo "${{ github.server_url }}" | sed 's|://|://x-token-auth:'"${GITHUB_TOKEN}"'@|')
+          git clone --depth 1 --branch "${{ github.ref_name }}" \
+            "${SERVER}/${{ github.repository }}.git" .
+
+      - name: Setup yq and etcdctl
+        run: |
+          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+
+          if ! command -v yq &>/dev/null; then
+            wget -qO /usr/local/bin/yq \
+              "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}"
+            chmod +x /usr/local/bin/yq
+          fi
+
+          if ! command -v etcdctl &>/dev/null; then
+            wget -qO /tmp/etcd.tar.gz \
+              "https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-${ARCH}.tar.gz"
+            tar -C /tmp -xzf /tmp/etcd.tar.gz "etcd-${ETCD_VERSION}-linux-${ARCH}/etcdctl"
+            mv "/tmp/etcd-${ETCD_VERSION}-linux-${ARCH}/etcdctl" /usr/local/bin/etcdctl
+            chmod +x /usr/local/bin/etcdctl
+            rm -rf /tmp/etcd.tar.gz "/tmp/etcd-${ETCD_VERSION}-linux-${ARCH}"
+          fi
+
+      - name: Validate config files
+        run: |
+          shopt -s nullglob
+          for f in apps/*/config*.yml apps/*/config*.yaml; do
+            [ -e "$f" ] || continue
+            echo "Validando $f"
+            yq eval '.' "$f" > /dev/null
+          done
+
+      - name: Sync to etcd
+        run: |
+          shopt -s nullglob
+          for f in apps/*/config*.yml apps/*/config*.yaml; do
+            [ -e "$f" ] || continue
+
+            app_name=$(basename "$(dirname "$f")")
+            base=$(basename "$f")
+            case "$base" in
+              config.yml|config.yaml)
+                environment="production"
+                ;;
+              config-*.yml|config-*.yaml)
+                environment=$(echo "$base" | sed -E 's/^config-(.*)\.ya?ml$/\1/')
+                ;;
+              *)
+                echo "Nome de arquivo inesperado: $f"; exit 1
+                ;;
+            esac
+
+            key="/configs/apps/${app_name}/${environment}"
+            value=$(yq -o=json eval '.' "$f")
+
+            echo "Gravando ${key}"
+            etcdctl --endpoints="${ETCD_ENDPOINTS}" put "${key}" "${value}" > /dev/null
+
+            stored=$(etcdctl --endpoints="${ETCD_ENDPOINTS}" get "${key}" --print-value-only)
+            if [ "$stored" != "$value" ]; then
+              echo "Verificação falhou para ${key}: valor gravado difere do esperado"
+              exit 1
+            fi
+          done

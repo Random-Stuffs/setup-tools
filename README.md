@@ -116,6 +116,8 @@ kubectl create secret generic cloudflared-secret \
   --namespace infra
 ```
 
+`etcd` (also under `deployments/data/`) needs no secret — it runs with `ALLOW_NONE_AUTHENTICATION=yes` and is only reachable inside the cluster (`etcd.data.svc.cluster.local:2379`). It's the target of the `etcd-sync` workflow template (see `workflows/github/etcd-sync/`), which writes business config (not k8s manifests) from a config repo (e.g. `ci-templates`) into etcd on every push.
+
 ---
 
 ## Step 4 — Configure Cloudflare named tunnel

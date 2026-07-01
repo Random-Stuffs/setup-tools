@@ -114,7 +114,7 @@ deployments/
 │   │   ├── cloudflare-tunnel.yaml  # Template: túnel nomeado prd (copie para .k8s/ do app)
 │   │   └── trycloudflare.yaml      # Template: túnel ephemeral dev (copie para .k8s/ do app)
 │   └── docusaurus/             # Templates específicos para sites Docusaurus
-└── data/                       # postgres | mongodb | redis | elasticsearch | kibana | pgadmin
+└── data/                       # postgres | mongodb | redis | elasticsearch | kibana | pgadmin | etcd
 ```
 
 All manifests include `namespace:` explicitly. All passwords and tokens are in `Secret` resources — files containing `<REPLACE_ME>` are templates and must be populated before applying.
@@ -183,6 +183,7 @@ kubectl delete -f deployments/dev/trycloudflare.yaml
     ```
   - PVC contents: `/data/gitea/gitea.db` (DB), `/data/gitea/repositories/` (repos), `/data/gitea/packages/` (registry).
 - **Gitea Runner** — `gitea/act_runner` in namespace `ci`. Registers automatically via `GITEA_RUNNER_REGISTRATION_TOKEN` env var. Config persists in 1Gi PVC. Mounts `/var/run/docker.sock`. Gitea Actions uses GitHub Actions YAML syntax.
+- **etcd** — namespace `data`; `bitnami/etcd:3.5` (multi-arch), `ALLOW_NONE_AUTHENTICATION=yes` (homelab single-tenant, sem TLS/RBAC). ClusterIP só na porta `2379`, sem Ingress/NodePort — acesso apenas interno ao cluster. 1Gi PVC `local-path` em `/bitnami/etcd`. Usado pelo workflow `etcd-sync` (ver CI/CD) para guardar config de negócio dos microsserviços Go em `/configs/apps/{app}/{environment}`; não roda nenhum app-facing service além disso.
 
 ---
 
@@ -201,8 +202,11 @@ Templates em `workflows/github/<tipo>/build-and-deploy.yaml` — copie para `.gi
 | `hugo/` | Hugo + nginx | 80 | build + deploy | sim | sim |
 | `docusaurus/` | Docusaurus | — | único | não | não |
 | `generic/` | qualquer | 8080 | único | não | não |
+| `etcd-sync/` | config YAML → etcd | — | único | não | não |
 
 **Docusaurus** gera `website/.recently-updated-manifest.json` automaticamente (controle via `DOCS_DIR` e `RECENTLY_UPDATED_DAYS`).
+
+**`etcd-sync`** é diferente dos outros: não builda imagem nem faz deploy de manifesto. Copie `workflows/github/etcd-sync/sync-config.yaml` para `.gitea/workflows/sync-config.yml` num repo de config (ex: `ci-templates`). Dispara só quando `apps/**/config*.yml` muda; valida sintaxe YAML (`yq`), converte para JSON e grava em `/configs/apps/{app}/{environment}` no etcd via `etcdctl`, depois confirma a escrita lendo a chave de volta. Requer o etcd de `deployments/data/etcd.yaml` já aplicado no cluster. Uso em detalhe: `ci-templates/CLAUDE.md`.
 
 **Jobs nos templates com develop:**
 - `build` — roda em todo push/tag. Valida que a imagem compila. Não toca no cluster.
@@ -236,8 +240,9 @@ Templates em `workflows/github/<tipo>/build-and-deploy.yaml` — copie para `.gi
 | Gitea Runner (idle) | 128 MiB | 512 MiB |
 | Postgres | 128 MiB | 512 MiB |
 | Redis | 32 MiB | 128 MiB |
+| etcd | 64 MiB | 256 MiB |
 | writing-editor | 64 MiB | 128 MiB |
-| **Idle total** | **~1008 MiB** | — |
+| **Idle total** | **~1072 MiB** | — |
 
 ~2.7 GiB free for CI/CD job peaks and other workloads.
 Elasticsearch + Kibana add up to 2 GiB of limits — deploy only if the Pi has 8 GB RAM.
